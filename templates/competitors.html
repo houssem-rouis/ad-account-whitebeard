@@ -4,14 +4,30 @@
 <div class="card p-3 mb-3">
   <h5>Add competitor ad</h5>
   <form method="post">
-    {{ form.hidden_tag() }}
-    <div class="mb-3">{{ form.name.label(class_='form-label') }}{{ form.name(class_='form-control') }}</div>
-    <div class="mb-3">{{ form.script.label(class_='form-label') }}{{ form.script(class_='form-control', rows=5) }}</div>
-    <div class="row g-2 mb-3">
-      <div class="col">{{ form.status.label(class_='form-label') }}{{ form.status(class_='form-select') }}</div>
-      <div class="col">{{ form.source.label(class_='form-label') }}{{ form.source(class_='form-control') }}</div>
+    <div class="mb-3">
+      <label class="form-label">Competitor ad name</label>
+      <input type="text" name="name" class="form-control" required>
     </div>
-    <div class="d-grid">{{ form.submit(class_='btn btn-primary') }}</div>
+    <div class="mb-3">
+      <label class="form-label">Competitor copy</label>
+      <textarea name="script" class="form-control" rows="5" required></textarea>
+    </div>
+    <div class="row g-2 mb-3">
+      <div class="col">
+        <label class="form-label">Status</label>
+        <select name="status" class="form-select">
+          <option value="running">Running</option>
+          <option value="paused">Paused</option>
+        </select>
+      </div>
+      <div class="col">
+        <label class="form-label">Source or platform</label>
+        <input type="text" name="source" class="form-control">
+      </div>
+    </div>
+    <div class="d-grid">
+      <button type="submit" class="btn btn-primary">Add competitor ad</button>
+    </div>
   </form>
 </div>
 <div class="card p-3">
@@ -25,7 +41,7 @@
             <strong>{{ comp.name }}</strong> <small class="text-muted">{{ comp.source }}</small><br>
             <span class="badge bg-success">{{ comp.status }}</span>
           </div>
-          <small>{{ comp.created_at.strftime('%Y-%m-%d') }}</small>
+          <small>{{ comp.created_at }}</small>
         </div>
         <p class="mb-0 mt-2">{{ comp.script }}</p>
       </div>

@@ -1,70 +1,203 @@
 {% extends 'base.html' %}
 {% block content %}
-<h2>{{ account.name }}</h2>
-<div class="row">
-  <div class="col-lg-6">
-    <div class="card p-3 mb-3">
-      <h5>Add / analyze ad</h5>
-      <form method="post">
-        {{ form.hidden_tag() }}
-        <div class="mb-3">{{ form.name.label(class_='form-label') }}{{ form.name(class_='form-control') }}</div>
-        <div class="mb-3">{{ form.script.label(class_='form-label') }}{{ form.script(class_='form-control', rows=5) }}</div>
-        <div class="row g-2 mb-3">
-          <div class="col"><label class="form-label">Impressions</label>{{ form.impressions(class_='form-control') }}</div>
-          <div class="col"><label class="form-label">Clicks</label>{{ form.clicks(class_='form-control') }}</div>
-          <div class="col"><label class="form-label">Spend</label>{{ form.spend(class_='form-control') }}</div>
-          <div class="col"><label class="form-label">Revenue</label>{{ form.revenue(class_='form-control') }}</div>
+<div class="d-flex flex-column flex-md-row align-items-start justify-content-between gap-3 mb-4">
+  <div>
+    <p class="text-uppercase text-secondary mb-1">Account workspace</p>
+    <h1 class="fw-semibold mb-1">{{ account.name }}</h1>
+    <p class="text-muted">Only active campaigns, ad sets, and ads are included here, grouped for fast decision-making.</p>
+  </div>
+  <div class="d-flex gap-2">
+    <a class="btn btn-outline-secondary" href="{{ url_for('accounts') }}">Back to accounts</a>
+    <a class="btn btn-primary" href="{{ url_for('connect_meta', account_id=account.id) }}">Meta settings</a>
+  </div>
+</div>
+<div class="row g-4 mb-4">
+  <div class="col-lg-4">
+    <div class="card p-4 mb-4">
+      <h5 class="mb-3">Account summary</h5>
+      <div class="summary-grid">
+        <div>
+          <p class="text-secondary mb-1">Active ads</p>
+          <h3>{{ summary.count }}</h3>
         </div>
-        <div class="mb-3">{{ form.status.label(class_='form-label') }}{{ form.status(class_='form-select') }}</div>
-        <div class="d-grid">{{ form.submit(class_='btn btn-primary') }}</div>
+        <div>
+          <p class="text-secondary mb-1">Spend (USD)</p>
+          <h3>${{ '%.2f' | format(summary.spend) }}</h3>
+        </div>
+        <div>
+          <p class="text-secondary mb-1">Revenue (USD)</p>
+          <h3>${{ '%.2f' | format(summary.revenue) }}</h3>
+        </div>
+        <div>
+          <p class="text-secondary mb-1">Avg CTR</p>
+          <h3>{{ summary.ctr }}%</h3>
+        </div>
+        <div>
+          <p class="text-secondary mb-1">Avg CPC</p>
+          <h3>${{ '%.2f' | format(summary.cpc) }}</h3>
+        </div>
+        <div>
+          <p class="text-secondary mb-1">Avg ROAS</p>
+          <h3 data-bs-toggle="tooltip" title="{{ summary.roas_tooltip }}">{{ '%.2f' | format(summary.roas) }}x</h3>
+        </div>
+      </div>
+    </div>
+    <div class="card p-4 h-100">
+      <h5 class="mb-3">Filters</h5>
+      <form method="get" class="row g-3">
+        <div class="col-12">
+          <label class="form-label">Search ads</label>
+          <input type="text" name="search" value="{{ filters.search }}" class="form-control" placeholder="Search by name or copy">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">Status</label>
+          <select name="status" class="form-select">
+            <option value="" {% if not filters.status %}selected{% endif %}>All</option>
+            <option value="running" {% if filters.status == 'running' %}selected{% endif %}>Running</option>
+            <option value="paused" {% if filters.status == 'paused' %}selected{% endif %}>Paused</option>
+            <option value="stopped" {% if filters.status == 'stopped' %}selected{% endif %}>Stopped</option>
+          </select>
+        </div>
+        <div class="col-md-3">
+          <label class="form-label">Min spend</label>
+          <input type="number" name="min_spend" value="{{ filters.min_spend }}" class="form-control" step="0.01">
+        </div>
+        <div class="col-md-3">
+          <label class="form-label">Max spend</label>
+          <input type="number" name="max_spend" value="{{ filters.max_spend }}" class="form-control" step="0.01">
+        </div>
+        <div class="col-12 d-grid">
+          <button class="btn btn-primary">Apply filters</button>
+        </div>
       </form>
     </div>
   </div>
-  <div class="col-lg-6">
-    <div class="card p-3 mb-3">
-      <h5>Competitor research</h5>
-      <a class="btn btn-outline-secondary w-100 mb-2" href="{{ url_for('competitors', account_id=account.id) }}">Open competitor ads</a>
-      <p class="small mb-0">Add competitor ads only for running campaigns. Filter by newest or oldest in the competitor page.</p>
+  <div class="col-lg-8">
+    <div class="card p-4 mb-4">
+      <h5 class="mb-3">Add / analyze ad</h5>
+      <form method="post">
+        <div class="mb-3">
+          <label class="form-label">Ad name</label>
+          <input type="text" name="name" class="form-control" required>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Ad script or copy</label>
+          <textarea name="script" class="form-control" rows="5" required></textarea>
+        </div>
+        <div class="row g-2 mb-3">
+          <div class="col-sm-6 col-lg-3">
+            <label class="form-label">Impressions</label>
+            <input type="number" name="impressions" class="form-control" value="0">
+          </div>
+          <div class="col-sm-6 col-lg-3">
+            <label class="form-label">Clicks</label>
+            <input type="number" name="clicks" class="form-control" value="0">
+          </div>
+          <div class="col-sm-6 col-lg-3">
+            <label class="form-label">Spend</label>
+            <input type="number" name="spend" class="form-control" value="0" step="0.01">
+          </div>
+          <div class="col-sm-6 col-lg-3">
+            <label class="form-label">Revenue</label>
+            <input type="number" name="revenue" class="form-control" value="0" step="0.01">
+          </div>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Status</label>
+          <select name="status" class="form-select">
+            <option value="running">Running</option>
+            <option value="paused">Paused</option>
+            <option value="stopped">Stopped</option>
+          </select>
+        </div>
+        <div class="d-grid">
+          <button type="submit" class="btn btn-primary">Save ad</button>
+        </div>
+      </form>
+    </div>
+    <div class="card p-4">
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <div>
+          <h5 class="mb-1">Active campaigns</h5>
+          <p class="text-muted small mb-0">Grouped by campaign, then ad set, with budget and ROAS in each section.</p>
+        </div>
+      </div>
+      {% if summary.campaigns %}
+      <div class="accordion" id="campaignAccordion">
+        {% for campaign in summary.campaigns %}
+        <div class="accordion-item mb-3">
+          <h2 class="accordion-header" id="campaignHeading{{ loop.index }}">
+            <button class="accordion-button {% if not loop.first %}collapsed{% endif %}" type="button" data-bs-toggle="collapse" data-bs-target="#campaignCollapse{{ loop.index }}" aria-expanded="{{ 'true' if loop.first else 'false' }}" aria-controls="campaignCollapse{{ loop.index }}">
+              <div class="w-100 d-flex justify-content-between align-items-center gap-3">
+                <div>
+                  <strong>{{ campaign.name }}</strong>
+                  <div class="text-muted small">Campaign ID {{ campaign.id }}</div>
+                </div>
+                <div class="text-end">
+                  <div class="small text-secondary">Budget</div>
+                  <div>${{ '%.2f' | format(campaign.budget_usd) }}</div>
+                  <div class="small text-secondary">ROAS</div>
+                  <div>{{ '%.2f' | format(campaign.roas) }}x</div>
+                </div>
+              </div>
+            </button>
+          </h2>
+          <div id="campaignCollapse{{ loop.index }}" class="accordion-collapse collapse {% if loop.first %}show{% endif %}" aria-labelledby="campaignHeading{{ loop.index }}" data-bs-parent="#campaignAccordion">
+            <div class="accordion-body">
+              {% for adset in campaign.adsets.values() %}
+              <div class="card mb-3 p-3 bg-light border border-1 border-primary border-opacity-10">
+                <div class="d-flex justify-content-between flex-wrap gap-2 mb-3">
+                  <div>
+                    <h6 class="mb-1">{{ adset.name }}</h6>
+                    <p class="text-muted small mb-0">Ad set ID {{ adset.id }}</p>
+                  </div>
+                  <div class="text-end">
+                    <div class="small text-secondary">Budget</div>
+                    <div>${{ '%.2f' | format(adset.budget_usd) }}</div>
+                    <div class="small text-secondary">ROAS</div>
+                    <div>{{ '%.2f' | format(adset.roas) }}x</div>
+                  </div>
+                </div>
+                <div class="table-responsive">
+                  <table class="table table-borderless table-hover align-middle mb-0">
+                    <thead>
+                      <tr>
+                        <th>Creative</th>
+                        <th>Spend USD</th>
+                        <th>ROAS</th>
+                        <th>CTR</th>
+                        <th>Clicks</th>
+                        <th>Impr.</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {% for ad in adset.ads %}
+                      <tr class="clickable-row" onclick="window.location='{{ url_for('ad_detail', ad_id=ad.id) }}'">
+                        <td>
+                          <strong>{{ ad.name }}</strong>
+                          <div class="text-muted small">{{ ad.script[:80] }}{% if ad.script|length > 80 %}...{% endif %}</div>
+                        </td>
+                        <td>${{ '%.2f' | format(ad.spend_usd) }}</td>
+                        <td>{{ '%.2f' | format(ad.roas) }}x</td>
+                        <td>{{ '%.2f' | format(ad.ctr) }}%</td>
+                        <td>{{ ad.clicks | int }}</td>
+                        <td>{{ ad.impressions | int }}</td>
+                      </tr>
+                      {% endfor %}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+              {% endfor %}
+            </div>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}
+      <p class="text-muted mb-0">No active campaigns or ad sets available for this account.</p>
+      {% endif %}
     </div>
   </div>
-</div>
-<div class="card p-3">
-  <h5>Ads for {{ account.name }}</h5>
-  {% if ads %}
-  <div class="table-responsive">
-    <table class="table table-hover">
-      <thead>
-        <tr>
-          <th>Ad</th>
-          <th>Status</th>
-          <th>ROI</th>
-          <th>CTR</th>
-          <th>Analysis</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for ad in ads %}
-        <tr>
-          <td>{{ ad.name }}</td>
-          <td>{{ ad.status }}</td>
-          <td>{{ ad.roi() }}%</td>
-          <td>{{ ad.ctr() }}%</td>
-          <td>
-            {% if ad.analysis %}
-              <strong>Tone:</strong> {{ ad.analysis.tone }}<br>
-              <strong>Style:</strong> {{ ad.analysis.style }}<br>
-              <strong>Awareness:</strong> {{ ad.analysis.awareness_level }}
-            {% else %}
-              No analysis yet
-            {% endif %}
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-  {% else %}
-  <p>No ads saved yet for this account.</p>
-  {% endif %}
 </div>
 {% endblock %}

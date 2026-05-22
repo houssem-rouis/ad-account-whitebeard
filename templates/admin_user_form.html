@@ -3,11 +3,21 @@
 <h2>Create a new user</h2>
 <div class="card p-3">
   <form method="post">
-    {{ form.hidden_tag() }}
-    <div class="mb-3">{{ form.username.label(class_='form-label') }}{{ form.username(class_='form-control') }}</div>
-    <div class="mb-3">{{ form.password.label(class_='form-label') }}{{ form.password(class_='form-control') }}</div>
-    <div class="mb-3 form-check">{{ form.is_admin(class_='form-check-input') }}{{ form.is_admin.label(class_='form-check-label') }}</div>
-    <div class="d-grid">{{ form.submit(class_='btn btn-primary') }}</div>
+    <div class="mb-3">
+      <label class="form-label">Username</label>
+      <input type="text" name="username" class="form-control" required>
+    </div>
+    <div class="mb-3">
+      <label class="form-label">Password</label>
+      <input type="password" name="password" class="form-control" required>
+    </div>
+    <div class="mb-3 form-check">
+      <input type="checkbox" name="is_admin" class="form-check-input">
+      <label class="form-check-label">Administrator</label>
+    </div>
+    <div class="d-grid">
+      <button type="submit" class="btn btn-primary">Create user</button>
+    </div>
   </form>
 </div>
 {% endblock %}

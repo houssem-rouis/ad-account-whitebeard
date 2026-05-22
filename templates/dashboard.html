@@ -1,68 +1,151 @@
 {% extends 'base.html' %}
 {% block content %}
-<h2>Dashboard</h2>
-<div class="row g-3">
-  <div class="col-lg-8">
-    <div class="card p-3 mb-3">
-      <h5 class="card-title">Campaign health</h5>
-      {% if stats %}
-        <div class="row">
-          {% for account in stats %}
-          <div class="col-md-6 mb-3">
-            <div class="card h-100 bg-light border-0 shadow-sm">
-              <div class="card-body">
-                <h6>{{ account.account.name }}</h6>
-                <p class="mb-1">Spend: ${{ account.total_spend }}</p>
-                <p class="mb-1">Revenue: ${{ account.total_revenue }}</p>
-                <p class="mb-0">ROI: {{ account.roi }}%</p>
-              </div>
-            </div>
-          </div>
-          {% endfor %}
-        </div>
-      {% else %}
-        <p>No ad accounts yet. Add one to start analyzing campaigns.</p>
-      {% endif %}
+<div class="d-flex flex-column flex-md-row align-items-start justify-content-between gap-3 mb-4">
+  <div>
+    <p class="text-uppercase text-secondary mb-1">Performance cockpit</p>
+    <h1 class="fw-semibold mb-0">Campaign intelligence</h1>
+    <p class="text-muted mt-2">Analyze ad account performance, review script insights, and surface the highest-impact creative opportunities.</p>
+  </div>
+  <a class="btn btn-primary btn-lg" href="{{ url_for('accounts') }}">Manage ad accounts</a>
+</div>
+<div class="row g-3 mb-4">
+  <div class="col-sm-6 col-xl-3">
+    <div class="card metric-card p-3 h-100">
+      <span class="text-secondary">Accounts</span>
+      <h2 class="mt-2">{{ summary.accounts }}</h2>
+      <small class="text-muted">Active ad groups</small>
     </div>
-    <div class="card p-3 mb-3">
-      <h5 class="card-title">Recommendations</h5>
-      {% if recommendations %}
-        {% for rec in recommendations %}
-        <div class="mb-3">
-          <strong>{{ rec.account.name }}</strong>
-          <p class="mb-1">{{ rec.best_tag }}</p>
-          <p class="mb-1">{{ rec.avoid_tag }}</p>
-          <p class="mb-0"><em>{{ rec.next_test }}</em></p>
+  </div>
+  <div class="col-sm-6 col-xl-3">
+    <div class="card metric-card p-3 h-100">
+      <span class="text-secondary">Total ads</span>
+      <h2 class="mt-2">{{ summary.ads }}</h2>
+      <small class="text-muted">Campaign creatives tracked</small>
+    </div>
+  </div>
+  <div class="col-sm-6 col-xl-3">
+    <div class="card metric-card p-3 h-100">
+      <span class="text-secondary">Spend</span>
+      <h2 class="mt-2">${{ '%.2f' | format(summary.spend) }}</h2>
+      <small class="text-muted">Total investment</small>
+    </div>
+  </div>
+  <div class="col-sm-6 col-xl-3">
+    <div class="card metric-card p-3 h-100">
+      <span class="text-secondary">Avg CTR</span>
+      <h2 class="mt-2">{{ summary.ctr }}%</h2>
+      <small class="text-muted">All tracked ads</small>
+    </div>
+  </div>
+</div>
+<div class="row g-4 mb-4">
+  <div class="col-lg-8">
+    <div class="card p-4 h-100">
+      <div class="d-flex align-items-center justify-content-between mb-3">
+        <div>
+          <h5 class="mb-0">Account performance</h5>
+          <small class="text-muted">Spend vs revenue by account</small>
         </div>
-        {% endfor %}
-      {% else %}
-        <p>Add ads to generate AI-style recommendations based on results and copy patterns.</p>
-      {% endif %}
+      </div>
+      <canvas id="accountChart" height="220"></canvas>
     </div>
   </div>
   <div class="col-lg-4">
-    <div class="card p-3 mb-3">
-      <h5 class="card-title">Recent ads</h5>
-      {% if recent_ads %}
-        <ul class="list-group list-group-flush">
-          {% for ad in recent_ads %}
-          <li class="list-group-item">
-            <strong>{{ ad.name }}</strong><br>
-            <small>{{ ad.account.name }} • {{ ad.status }}</small>
-          </li>
-          {% endfor %}
-        </ul>
+    <div class="card p-4 h-100">
+      <h5 class="mb-3">Top spenders</h5>
+      <div class="list-group list-group-flush">
+        {% for ad in top_ads %}
+        <a href="{{ url_for('ad_detail', ad_id=ad.id) }}" class="list-group-item list-group-item-action px-0 py-3">
+          <div class="d-flex justify-content-between align-items-center">
+            <div>
+              <strong>{{ ad.name }}</strong>
+              <div class="text-muted small">{{ accounts[ad.account_id].name if ad.account_id in accounts else 'Unknown' }}</div>
+            </div>
+            <span class="badge bg-primary">${{ '%.0f' | format(ad.spend|float) }}</span>
+          </div>
+          <div class="text-muted small mt-2">{{ ad.status }} • {{ ad.impressions }} impressions</div>
+        </a>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+</div>
+<div class="row g-4">
+  <div class="col-lg-6">
+    <div class="card p-4">
+      <h5>Account pulse</h5>
+      {% if stats %}
+      <div class="row gy-3 mt-3">
+        {% for account in stats %}
+        <div class="col-12">
+          <div class="d-flex justify-content-between align-items-center">
+            <div>
+              <strong>{{ account.account.name }}</strong>
+              <div class="text-muted small">{{ account.ads|length }} ads</div>
+            </div>
+            <span class="text-muted small">ROI {{ account.roi }}%</span>
+          </div>
+          <div class="progress mt-3" style="height: 10px;">
+            <div class="progress-bar" role="progressbar" style="width: {{ account.roi if account.roi < 100 else 100 }}%;" aria-valuenow="{{ account.roi }}" aria-valuemin="0" aria-valuemax="100"></div>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
       {% else %}
-        <p>No recent ads available.</p>
+      <p class="text-muted">No accounts yet. Add one and sync creatives to start exploring campaign impact.</p>
       {% endif %}
     </div>
-    <div class="card p-3">
-      <h5 class="card-title">Quick actions</h5>
-      <a class="btn btn-outline-primary w-100 mb-2" href="{{ url_for('accounts') }}">Manage ad accounts</a>
-      {% if current_user.is_admin %}
-      <a class="btn btn-outline-secondary w-100" href="{{ url_for('admin_users') }}">Manage users</a>
+  </div>
+  <div class="col-lg-6">
+    <div class="card p-4">
+      <h5>Recent ads</h5>
+      {% if recent_ads %}
+      <div class="list-group list-group-flush mt-3">
+        {% for ad in recent_ads %}
+        <a href="{{ url_for('ad_detail', ad_id=ad.id) }}" class="list-group-item list-group-item-action px-0 py-3">
+          <div class="d-flex justify-content-between align-items-center">
+            <div>
+              <strong>{{ ad.name }}</strong>
+              <div class="text-muted small">{{ ad.account_name }}</div>
+            </div>
+            <span class="badge bg-outline-secondary">{{ ad.status }}</span>
+          </div>
+          <div class="text-muted small mt-2">Updated {{ ad.updated_at }}</div>
+        </a>
+        {% endfor %}
+      </div>
+      {% else %}
+      <p class="text-muted">No recent ads yet.</p>
       {% endif %}
     </div>
   </div>
 </div>
+<script>
+  const accountChart = document.getElementById('accountChart');
+  if (accountChart) {
+    new Chart(accountChart, {
+      type: 'bar',
+      data: {
+        labels: {{ chart_labels | tojson | safe }},
+        datasets: [
+          {
+            label: 'Spend',
+            backgroundColor: '#0d6efd',
+            data: {{ chart_spend | tojson | safe }},
+          },
+          {
+            label: 'Revenue',
+            backgroundColor: '#198754',
+            data: {{ chart_revenue | tojson | safe }},
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        plugins: { legend: { position: 'bottom' } },
+        scales: { y: { beginAtZero: true } }
+      }
+    });
+  }
+</script>
 {% endblock %}

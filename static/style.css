@@ -1,28 +1,79 @@
 :root {
   color-scheme: light;
-  background-color: #f8f9fa;
-  color: #212529;
+  background-color: #eef2ff;
+  color: #111827;
 }
 html[data-theme='dark'] {
   color-scheme: dark;
-  background-color: #121214;
-  color: #e9ecef;
+  background-color: #0b1120;
+  color: #e2e8f0;
 }
 body {
   min-height: 100vh;
-  background-color: var(--bs-body-bg);
+  background: radial-gradient(circle at top, rgba(13,110,253,0.12), transparent 28%),
+              radial-gradient(circle at bottom right, rgba(25,135,84,0.12), transparent 30%),
+              var(--bs-body-bg);
   color: var(--bs-body-color);
 }
 html[data-theme='dark'] body {
-  background-color: #121214;
-  color: #e9ecef;
+  background: radial-gradient(circle at top, rgba(13,110,253,0.18), transparent 30%),
+              radial-gradient(circle at bottom right, rgba(25,135,84,0.14), transparent 35%),
+              #0b1120;
 }
-.navbar, .card {
-  background-color: var(--bs-body-bg) !important;
+.navbar {
+  background: transparent !important;
+}
+.card {
+  background: rgba(255,255,255,0.92);
+  border: none;
+  border-radius: 24px;
+  box-shadow: 0 20px 60px rgba(15,23,42,0.08);
+}
+html[data-theme='dark'] .card {
+  background: rgba(15,23,42,0.92);
+}
+.metric-card {
+  border: 1px solid rgba(13,110,253,0.14);
+}
+.account-card {
+  border: 1px solid rgba(13,110,253,0.15);
+}
+.clickable-row {
+  cursor: pointer;
+  transition: transform 0.15s ease, background 0.15s ease;
+}
+.clickable-row:hover {
+  transform: translateX(4px);
+  background: rgba(13,110,253,0.06);
+}
+.summary-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.summary-grid div {
+  padding: 1rem;
+  border-radius: 18px;
+  background: rgba(248,249,250,0.8);
+}
+html[data-theme='dark'] .summary-grid div {
+  background: rgba(255,255,255,0.06);
+}
+.script-panel {
+  background: rgba(248,249,250,0.9);
+  border-radius: 18px;
+  padding: 1.25rem;
+  white-space: pre-wrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+}
+.list-group-item-action {
+  border-radius: 16px;
+  margin-bottom: 0.75rem;
+  padding: 1rem 1.25rem;
+}
+.list-group-item-action:hover {
+  background: rgba(13,110,253,0.08);
 }
 .alert {
   opacity: 0.98;
-}
-.table {
-  color: inherit;
 }
