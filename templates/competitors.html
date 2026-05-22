@@ -1,54 +1,79 @@
 {% extends 'base.html' %}
+{% block title %}Competitor ads · {{ account.name }}{% endblock %}
 {% block content %}
-<h2>Competitor ads for {{ account.name }}</h2>
-<div class="card p-3 mb-3">
-  <h5>Add competitor ad</h5>
-  <form method="post">
-    <div class="mb-3">
-      <label class="form-label">Competitor ad name</label>
-      <input type="text" name="name" class="form-control" required>
-    </div>
-    <div class="mb-3">
-      <label class="form-label">Competitor copy</label>
-      <textarea name="script" class="form-control" rows="5" required></textarea>
-    </div>
-    <div class="row g-2 mb-3">
-      <div class="col">
-        <label class="form-label">Status</label>
-        <select name="status" class="form-select">
-          <option value="running">Running</option>
-          <option value="paused">Paused</option>
-        </select>
-      </div>
-      <div class="col">
-        <label class="form-label">Source or platform</label>
-        <input type="text" name="source" class="form-control">
-      </div>
-    </div>
-    <div class="d-grid">
-      <button type="submit" class="btn btn-primary">Add competitor ad</button>
-    </div>
-  </form>
+<div class="page-header">
+  <div>
+    <p class="eyebrow mb-2">{{ account.name }}</p>
+    <h1>Competitor ads</h1>
+    <p class="text-muted mb-0">Track running competitor creatives next to your own so you can react quickly.</p>
+  </div>
+  <div class="page-header-actions">
+    <a class="btn btn-outline-secondary" href="{{ url_for('account_detail', account_id=account.id) }}">Back to account</a>
+  </div>
 </div>
-<div class="card p-3">
-  <h5>Running competitor ads</h5>
-  {% if competitors %}
-    <div class="list-group">
-      {% for comp in competitors %}
-      <div class="list-group-item">
-        <div class="d-flex justify-content-between align-items-start">
-          <div>
-            <strong>{{ comp.name }}</strong> <small class="text-muted">{{ comp.source }}</small><br>
-            <span class="badge bg-success">{{ comp.status }}</span>
-          </div>
-          <small>{{ comp.created_at }}</small>
+
+<div class="row g-4">
+  <div class="col-lg-5">
+    <div class="card p-4">
+      <h5 class="fw-semibold mb-3">Add a competitor</h5>
+      <form method="post" class="d-grid gap-3">
+        <div>
+          <label class="form-label" for="comp-name">Competitor ad name</label>
+          <input id="comp-name" type="text" name="name" class="form-control" required>
         </div>
-        <p class="mb-0 mt-2">{{ comp.script }}</p>
-      </div>
-      {% endfor %}
+        <div>
+          <label class="form-label" for="comp-script">Ad copy / script</label>
+          <textarea id="comp-script" name="script" rows="5" class="form-control" placeholder="Paste the creative copy you observed…" required></textarea>
+        </div>
+        <div class="row g-2">
+          <div class="col-6">
+            <label class="form-label" for="comp-status">Status</label>
+            <select id="comp-status" name="status" class="form-select">
+              <option value="running">Running</option>
+              <option value="paused">Paused</option>
+            </select>
+          </div>
+          <div class="col-6">
+            <label class="form-label" for="comp-source">Source</label>
+            <input id="comp-source" type="text" name="source" class="form-control" placeholder="e.g. Facebook">
+          </div>
+        </div>
+        <button type="submit" class="btn btn-primary">Add competitor</button>
+      </form>
     </div>
-  {% else %}
-    <p>No competitor ads yet. Add your competitors and sort them manually with newest/oldest records as needed.</p>
-  {% endif %}
+  </div>
+
+  <div class="col-lg-7">
+    <div class="card p-4">
+      <div class="d-flex align-items-center justify-content-between mb-3">
+        <h5 class="fw-semibold mb-0">Tracked competitors</h5>
+        <span class="text-faint small">{{ competitors|length }} entr{{ 'y' if competitors|length == 1 else 'ies' }}</span>
+      </div>
+      {% if competitors %}
+      <div class="d-flex flex-column gap-2">
+        {% for comp in competitors %}
+        <div class="card p-3">
+          <div class="d-flex align-items-center justify-content-between mb-2 gap-2">
+            <div class="min-w-0">
+              <div class="fw-semibold text-truncate">{{ comp.name }}</div>
+              <div class="text-muted small">
+                {% if comp.source %}{{ comp.source }} · {% endif %}
+                Added <span class="time-since" data-iso="{{ comp.created_at }}">{{ comp.created_at }}</span>
+              </div>
+            </div>
+            <span class="status-pill is-{{ comp.status|default('running')|lower }}">{{ comp.status }}</span>
+          </div>
+          <p class="text-muted small mb-0">{{ comp.script }}</p>
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div class="empty-state">
+        <strong>Nothing tracked yet</strong>
+        Add the first competitor ad on the left to keep tabs on what's running in the wild.
+      </div>
+      {% endif %}
+    </div>
+  </div>
 </div>
 {% endblock %}

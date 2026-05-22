@@ -1,151 +1,238 @@
 {% extends 'base.html' %}
+{% block title %}Dashboard · Whitebeard Ad Studio{% endblock %}
 {% block content %}
-<div class="d-flex flex-column flex-md-row align-items-start justify-content-between gap-3 mb-4">
+<div class="page-header">
   <div>
-    <p class="text-uppercase text-secondary mb-1">Performance cockpit</p>
-    <h1 class="fw-semibold mb-0">Campaign intelligence</h1>
-    <p class="text-muted mt-2">Analyze ad account performance, review script insights, and surface the highest-impact creative opportunities.</p>
+    <p class="eyebrow mb-2">Performance cockpit</p>
+    <h1>Campaign intelligence</h1>
+    <p class="text-muted mb-0">All ad accounts in one view. Spend, revenue, and creative health side by side.</p>
   </div>
-  <a class="btn btn-primary btn-lg" href="{{ url_for('accounts') }}">Manage ad accounts</a>
+  <div class="page-header-actions">
+    <a class="btn btn-outline-secondary" href="{{ url_for('accounts') }}">Manage accounts</a>
+    <button type="button" class="btn btn-primary"
+            data-sync-url="{{ dashboard_sync_url }}"
+            {% if dashboard_auto_sync %}data-auto-sync="true"{% endif %}>
+      Sync connected accounts
+    </button>
+  </div>
 </div>
+
 <div class="row g-3 mb-4">
   <div class="col-sm-6 col-xl-3">
-    <div class="card metric-card p-3 h-100">
-      <span class="text-secondary">Accounts</span>
-      <h2 class="mt-2">{{ summary.accounts }}</h2>
-      <small class="text-muted">Active ad groups</small>
+    <div class="card metric-card accent h-100">
+      <span class="label">Accounts</span>
+      <span class="value">{{ summary.accounts }}</span>
+      <span class="hint">Active ad groups</span>
     </div>
   </div>
   <div class="col-sm-6 col-xl-3">
-    <div class="card metric-card p-3 h-100">
-      <span class="text-secondary">Total ads</span>
-      <h2 class="mt-2">{{ summary.ads }}</h2>
-      <small class="text-muted">Campaign creatives tracked</small>
+    <div class="card metric-card h-100">
+      <span class="label">Total ads</span>
+      <span class="value">{{ summary.ads }}</span>
+      <span class="hint">{{ summary.active_ads }} currently running</span>
     </div>
   </div>
   <div class="col-sm-6 col-xl-3">
-    <div class="card metric-card p-3 h-100">
-      <span class="text-secondary">Spend</span>
-      <h2 class="mt-2">${{ '%.2f' | format(summary.spend) }}</h2>
-      <small class="text-muted">Total investment</small>
+    <div class="card metric-card h-100">
+      <span class="label">Total spend</span>
+      <span class="value money" data-usd="{{ summary.spend }}">${{ '%.2f' | format(summary.spend) }}</span>
+      <span class="hint">Across all connected accounts</span>
     </div>
   </div>
   <div class="col-sm-6 col-xl-3">
-    <div class="card metric-card p-3 h-100">
-      <span class="text-secondary">Avg CTR</span>
-      <h2 class="mt-2">{{ summary.ctr }}%</h2>
-      <small class="text-muted">All tracked ads</small>
+    <div class="card metric-card h-100">
+      <span class="label">Avg CTR</span>
+      <span class="value">{{ summary.ctr }}%</span>
+      <span class="hint">All tracked creatives</span>
     </div>
   </div>
 </div>
+
 <div class="row g-4 mb-4">
   <div class="col-lg-8">
     <div class="card p-4 h-100">
       <div class="d-flex align-items-center justify-content-between mb-3">
         <div>
-          <h5 class="mb-0">Account performance</h5>
-          <small class="text-muted">Spend vs revenue by account</small>
+          <h5 class="fw-semibold mb-1">Account performance</h5>
+          <small class="text-muted">Spend vs revenue, by account</small>
         </div>
       </div>
-      <canvas id="accountChart" height="220"></canvas>
+      {% if chart_labels %}
+      <canvas id="accountChart" height="220"
+              data-labels='{{ chart_labels | tojson | safe }}'
+              data-spend-usd='{{ chart_spend | tojson | safe }}'
+              data-revenue-usd='{{ chart_revenue | tojson | safe }}'></canvas>
+      {% else %}
+      <div class="empty-state">
+        <strong>No data yet</strong>
+        Connect an account and sync ads to populate this chart.
+      </div>
+      {% endif %}
     </div>
   </div>
+
   <div class="col-lg-4">
     <div class="card p-4 h-100">
-      <h5 class="mb-3">Top spenders</h5>
+      <h5 class="fw-semibold mb-3">Top spenders</h5>
+      {% if top_ads %}
       <div class="list-group list-group-flush">
         {% for ad in top_ads %}
-        <a href="{{ url_for('ad_detail', ad_id=ad.id) }}" class="list-group-item list-group-item-action px-0 py-3">
-          <div class="d-flex justify-content-between align-items-center">
-            <div>
-              <strong>{{ ad.name }}</strong>
-              <div class="text-muted small">{{ accounts[ad.account_id].name if ad.account_id in accounts else 'Unknown' }}</div>
+        <a href="{{ url_for('ad_detail', ad_id=ad.id) }}" class="list-group-item list-group-item-action">
+          <div class="d-flex align-items-center gap-3">
+            {% set thumb = ad.thumbnail_url or ad.image_url %}
+            {% if thumb %}
+            <img src="{{ thumb }}" alt="" class="ad-thumb-sm">
+            {% else %}
+            <div class="ad-thumb-sm"></div>
+            {% endif %}
+            <div class="min-w-0 flex-grow-1">
+              <div class="fw-semibold text-truncate">{{ ad.name }}</div>
+              <div class="text-faint small text-truncate">
+                {{ accounts[ad.account_id].name if ad.account_id in accounts else 'Unknown' }}
+              </div>
             </div>
-            <span class="badge bg-primary">${{ '%.0f' | format(ad.spend|float) }}</span>
+            <div class="text-end">
+              <div class="fw-semibold money" data-usd="{{ ad.spend_usd }}" data-decimals="0">${{ '%.0f' | format(ad.spend_usd|float) }}</div>
+              <div class="text-faint small">{{ ad.impressions }} impr.</div>
+            </div>
           </div>
-          <div class="text-muted small mt-2">{{ ad.status }} • {{ ad.impressions }} impressions</div>
         </a>
         {% endfor %}
       </div>
+      {% else %}
+      <div class="empty-state mb-0">
+        <strong>No ads yet</strong>
+        Sync an account to populate this list.
+      </div>
+      {% endif %}
     </div>
   </div>
 </div>
+
 <div class="row g-4">
   <div class="col-lg-6">
-    <div class="card p-4">
-      <h5>Account pulse</h5>
+    <div class="card p-4 h-100">
+      <h5 class="fw-semibold mb-3">Account pulse</h5>
       {% if stats %}
-      <div class="row gy-3 mt-3">
+      <div class="d-flex flex-column gap-3">
         {% for account in stats %}
-        <div class="col-12">
-          <div class="d-flex justify-content-between align-items-center">
-            <div>
-              <strong>{{ account.account.name }}</strong>
-              <div class="text-muted small">{{ account.ads|length }} ads</div>
+        <div>
+          <div class="d-flex justify-content-between align-items-center mb-1 gap-2">
+            <div class="min-w-0">
+              <strong class="text-truncate d-block">{{ account.account.name }}</strong>
+              <span class="text-faint small">{{ account.ads|length }} ad{{ '' if account.ads|length == 1 else 's' }}</span>
             </div>
-            <span class="text-muted small">ROI {{ account.roi }}%</span>
+            <div class="text-end small">
+              <div class="text-muted">ROI <span class="fw-semibold {% if account.roi >= 0 %}text-success{% else %}text-danger{% endif %}">{{ account.roi }}%</span></div>
+              <div class="text-faint money" data-usd="{{ account.spend }}">${{ '%.2f' | format(account.spend) }}</div>
+            </div>
           </div>
-          <div class="progress mt-3" style="height: 10px;">
-            <div class="progress-bar" role="progressbar" style="width: {{ account.roi if account.roi < 100 else 100 }}%;" aria-valuenow="{{ account.roi }}" aria-valuemin="0" aria-valuemax="100"></div>
+          <div class="progress" style="height: 6px; border-radius: 999px;">
+            <div class="progress-bar" role="progressbar"
+                 style="width: {{ account.roi if account.roi > 0 and account.roi < 100 else (100 if account.roi >= 100 else 0) }}%"
+                 aria-valuenow="{{ account.roi }}" aria-valuemin="0" aria-valuemax="100"></div>
           </div>
         </div>
         {% endfor %}
       </div>
       {% else %}
-      <p class="text-muted">No accounts yet. Add one and sync creatives to start exploring campaign impact.</p>
+      <div class="empty-state mb-0">
+        <strong>Nothing yet</strong>
+        Add accounts to see ROI signals here.
+      </div>
       {% endif %}
     </div>
   </div>
+
   <div class="col-lg-6">
-    <div class="card p-4">
-      <h5>Recent ads</h5>
+    <div class="card p-4 h-100">
+      <h5 class="fw-semibold mb-3">Recent ads</h5>
       {% if recent_ads %}
-      <div class="list-group list-group-flush mt-3">
+      <div class="list-group list-group-flush">
         {% for ad in recent_ads %}
-        <a href="{{ url_for('ad_detail', ad_id=ad.id) }}" class="list-group-item list-group-item-action px-0 py-3">
-          <div class="d-flex justify-content-between align-items-center">
-            <div>
-              <strong>{{ ad.name }}</strong>
-              <div class="text-muted small">{{ ad.account_name }}</div>
+        <a href="{{ url_for('ad_detail', ad_id=ad.id) }}" class="list-group-item list-group-item-action">
+          <div class="d-flex align-items-center gap-3">
+            {% set thumb = ad.thumbnail_url or ad.image_url %}
+            {% if thumb %}
+            <img src="{{ thumb }}" alt="" class="ad-thumb-sm">
+            {% else %}
+            <div class="ad-thumb-sm"></div>
+            {% endif %}
+            <div class="min-w-0 flex-grow-1">
+              <div class="fw-semibold text-truncate">{{ ad.name }}</div>
+              <div class="text-faint small text-truncate">{{ ad.account_name }}</div>
             </div>
-            <span class="badge bg-outline-secondary">{{ ad.status }}</span>
+            <div class="text-end">
+              <span class="status-pill is-{{ ad.status|default('paused')|lower }}">{{ ad.status }}</span>
+              <div class="text-faint small mt-1">
+                <span class="time-since" data-iso="{{ ad.updated_at }}">{{ ad.updated_at }}</span>
+              </div>
+            </div>
           </div>
-          <div class="text-muted small mt-2">Updated {{ ad.updated_at }}</div>
         </a>
         {% endfor %}
       </div>
       {% else %}
-      <p class="text-muted">No recent ads yet.</p>
+      <div class="empty-state mb-0">
+        <strong>No recent activity</strong>
+        Synced ads will show up here.
+      </div>
       {% endif %}
     </div>
   </div>
 </div>
+
 <script>
-  const accountChart = document.getElementById('accountChart');
-  if (accountChart) {
-    new Chart(accountChart, {
+  document.addEventListener('DOMContentLoaded', function () {
+    const canvas = document.getElementById('accountChart');
+    if (!canvas) return;
+    const labels = JSON.parse(canvas.dataset.labels || '[]');
+    const spendUsd = JSON.parse(canvas.dataset.spendUsd || '[]');
+    const revenueUsd = JSON.parse(canvas.dataset.revenueUsd || '[]');
+
+    function scale(values, rate) {
+      return values.map(function (v) { return (parseFloat(v) || 0) * rate; });
+    }
+
+    const initial = (typeof getDisplayCurrency === 'function') ? getDisplayCurrency() : 'USD';
+    const initialMeta = DISPLAY_CURRENCIES[initial];
+    const styles = getComputedStyle(document.documentElement);
+    const gridColor = (styles.getPropertyValue('--color-border') || '#e2e8f0').trim();
+    const tickColor = (styles.getPropertyValue('--color-text-muted') || '#64748b').trim();
+
+    const chart = new Chart(canvas, {
       type: 'bar',
       data: {
-        labels: {{ chart_labels | tojson | safe }},
+        labels: labels,
         datasets: [
-          {
-            label: 'Spend',
-            backgroundColor: '#0d6efd',
-            data: {{ chart_spend | tojson | safe }},
-          },
-          {
-            label: 'Revenue',
-            backgroundColor: '#198754',
-            data: {{ chart_revenue | tojson | safe }},
-          }
+          { label: 'Spend (' + initial + ')', backgroundColor: '#2563eb', borderRadius: 6,
+            data: scale(spendUsd, initialMeta.rate_from_usd) },
+          { label: 'Revenue (' + initial + ')', backgroundColor: '#16a34a', borderRadius: 6,
+            data: scale(revenueUsd, initialMeta.rate_from_usd) }
         ]
       },
       options: {
         responsive: true,
-        plugins: { legend: { position: 'bottom' } },
-        scales: { y: { beginAtZero: true } }
+        plugins: {
+          legend: { position: 'bottom', labels: { color: tickColor, boxWidth: 12, boxHeight: 12 } },
+          tooltip: { intersect: false, mode: 'index' }
+        },
+        scales: {
+          x: { ticks: { color: tickColor }, grid: { display: false } },
+          y: { beginAtZero: true, ticks: { color: tickColor }, grid: { color: gridColor, drawBorder: false } }
+        }
       }
     });
-  }
+
+    document.addEventListener('display-currency-changed', function (event) {
+      const meta = event.detail.meta;
+      const code = event.detail.code;
+      chart.data.datasets[0].label = 'Spend (' + code + ')';
+      chart.data.datasets[0].data = scale(spendUsd, meta.rate_from_usd);
+      chart.data.datasets[1].label = 'Revenue (' + code + ')';
+      chart.data.datasets[1].data = scale(revenueUsd, meta.rate_from_usd);
+      chart.update();
+    });
+  });
 </script>
 {% endblock %}

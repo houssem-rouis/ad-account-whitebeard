@@ -1,0 +1,76 @@
+{% extends 'base.html' %}
+{% block title %}Compare creatives · Analytics{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="eyebrow mb-2">Analytics</p>
+    <h1>Creative comparison</h1>
+    <p class="text-muted mb-0">Pin up to four ads side by side to spot the winning patterns.</p>
+  </div>
+  <div class="page-header-actions">
+    <a class="btn btn-outline-secondary" href="{{ url_for('analytics') }}">Back to analytics</a>
+  </div>
+</div>
+
+<div class="card p-4 mb-4">
+  <h5 class="fw-semibold mb-3">Picker</h5>
+  <form method="get" class="row g-2 align-items-end">
+    <div class="col-md-9">
+      <label class="form-label" for="picker">Choose up to four creatives</label>
+      <select id="picker" name="ad" class="form-select" multiple size="6">
+        {% for ad in pickable %}
+        <option value="{{ ad.id }}" {% if ad.id in selected|map(attribute='id')|list %}selected{% endif %}>
+          {{ ad.name }} — {{ ad.account_name }} (${{ '%.0f' | format(ad.spend_usd) }})
+        </option>
+        {% endfor %}
+      </select>
+      <div class="form-text">Ctrl/Cmd-click to select multiple. Showing top 40 by spend.</div>
+    </div>
+    <div class="col-md-3 d-grid">
+      <button type="submit" class="btn btn-primary">Compare</button>
+    </div>
+  </form>
+</div>
+
+{% if selected %}
+<div class="compare-grid">
+  {% for ad in selected %}
+  <div class="card p-3 d-flex flex-column gap-2">
+    <div class="creative-tile-media">
+      {% set thumb = ad.thumbnail_url or ad.image_url %}
+      {% if ad.video_source_url %}
+        <video controls preload="metadata"
+               {% if ad.thumbnail_url %}poster="{{ ad.thumbnail_url }}"{% endif %}>
+          <source src="{{ ad.video_source_url }}" type="video/mp4">
+        </video>
+      {% elif thumb %}
+        <img src="{{ thumb }}" alt="">
+      {% else %}
+        <span class="creative-tile-placeholder">No preview</span>
+      {% endif %}
+    </div>
+    <div>
+      <div class="fw-semibold">{{ ad.name }}</div>
+      <div class="text-faint small">{{ ad.account_name }}</div>
+    </div>
+    <div class="compare-metrics">
+      <div><span class="label">Spend</span><span class="money" data-usd="{{ ad.spend_usd }}">${{ '%.2f' | format(ad.spend_usd) }}</span></div>
+      <div><span class="label">Revenue</span><span class="money" data-usd="{{ ad.revenue_usd }}">${{ '%.2f' | format(ad.revenue_usd) }}</span></div>
+      <div><span class="label">Results</span><span>{{ ad.purchases }}</span></div>
+      <div><span class="label">ROAS</span><span>{{ '%.2f' | format(ad.roas) }}x</span></div>
+      <div><span class="label">CTR</span><span>{{ '%.2f' | format(ad.ctr) }}%</span></div>
+      <div><span class="label">CPC</span><span class="money" data-usd="{{ ad.cpc_usd }}">${{ '%.2f' | format(ad.cpc_usd) }}</span></div>
+      <div><span class="label">Impr.</span><span>{{ ad.impressions | int }}</span></div>
+      <div><span class="label">Clicks</span><span>{{ ad.clicks | int }}</span></div>
+    </div>
+    <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('ad_detail', ad_id=ad.id) }}">Open</a>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="empty-state">
+  <strong>Nothing pinned yet</strong>
+  Pick at least two creatives above and hit Compare.
+</div>
+{% endif %}
+{% endblock %}

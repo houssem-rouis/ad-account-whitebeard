@@ -1,0 +1,571 @@
+{% extends 'base.html' %}
+{% block title %}Analytics · Whitebeard Ad Studio{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="eyebrow mb-2">
+      {% if scope_account %}{{ scope_account.name }}{% else %}All accounts{% endif %} · {{ connected_count }} connected
+    </p>
+    <h1>Analytics</h1>
+    <p class="text-muted mb-0">Cross-account performance, audience and placement breakdowns, creative health, and decision-grade insights.</p>
+  </div>
+  <div class="page-header-actions">
+    {% if scope_account %}
+      <a class="btn btn-outline-secondary" href="{{ url_for('analytics') }}">All accounts</a>
+      <a class="btn btn-outline-secondary" href="{{ url_for('account_detail', account_id=scope_account.id) }}">Back to account</a>
+    {% else %}
+      <a class="btn btn-outline-secondary" href="{{ url_for('dashboard') }}">Back to dashboard</a>
+    {% endif %}
+    <a class="btn btn-primary" href="{{ url_for('analytics_compare') }}">Compare creatives</a>
+  </div>
+</div>
+
+<div class="card p-3 mb-4">
+  <form method="get" class="d-flex flex-wrap align-items-center gap-3">
+    <div class="d-flex align-items-center gap-2">
+      <label class="form-label mb-0 me-2" for="range">Date range</label>
+      <select id="range" name="range" class="form-select form-select-sm" onchange="this.form.submit()" style="min-width:170px">
+        {% for value, label in date_ranges %}
+        <option value="{{ value }}" {% if value == date_preset %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <span class="text-faint small">Breakdown data is fetched live from Meta and cached for 10 minutes.</span>
+  </form>
+</div>
+
+<!-- ============================================================ -->
+<!-- PERIOD SUMMARY                                                -->
+<!-- ============================================================ -->
+<div class="row g-3 mb-4">
+  <div class="col-sm-6 col-xl-3">
+    <div class="card metric-card accent h-100">
+      <span class="label">Total spend</span>
+      <span class="value money" data-usd="{{ totals.spend }}">${{ '%.2f' | format(totals.spend) }}</span>
+      <span class="hint">{{ totals.ads }} ads across {{ totals.ad_accounts }} account{{ '' if totals.ad_accounts == 1 else 's' }}</span>
+    </div>
+  </div>
+  <div class="col-sm-6 col-xl-3">
+    <div class="card metric-card h-100">
+      <span class="label">Revenue</span>
+      <span class="value money" data-usd="{{ totals.revenue }}">${{ '%.2f' | format(totals.revenue) }}</span>
+      <span class="hint">ROAS {{ '%.2f' | format((totals.revenue / totals.spend) if totals.spend else 0) }}x</span>
+    </div>
+  </div>
+  <div class="col-sm-6 col-xl-3">
+    <div class="card metric-card h-100">
+      <span class="label">Purchases</span>
+      <span class="value">{{ totals.purchases }}</span>
+      <span class="hint">CPA {% if totals.purchases %}<span class="money" data-usd="{{ totals.spend / totals.purchases }}">${{ '%.2f' | format(totals.spend / totals.purchases) }}</span>{% else %}—{% endif %}</span>
+    </div>
+  </div>
+  <div class="col-sm-6 col-xl-3">
+    <div class="card metric-card h-100">
+      <span class="label">Clicks</span>
+      <span class="value">{{ totals.clicks }}</span>
+      <span class="hint">CTR {{ '%.2f' | format((totals.clicks / totals.impressions * 100) if totals.impressions else 0) }}%</span>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- TIME-SERIES                                                   -->
+<!-- ============================================================ -->
+<div class="card p-4 mb-4">
+  <h5 class="fw-semibold mb-3">Daily performance</h5>
+  {% if timeseries.labels %}
+  <canvas id="chartTimeseries" height="100"
+          data-labels='{{ timeseries.labels | tojson | safe }}'
+          data-spend='{{ timeseries.spend | tojson | safe }}'
+          data-revenue='{{ timeseries.revenue | tojson | safe }}'
+          data-purchases='{{ timeseries.purchases | tojson | safe }}'
+          data-roas='{{ timeseries.roas | tojson | safe }}'></canvas>
+  {% else %}
+  <div class="empty-state">
+    <strong>No daily insights available</strong>
+    Connect a Meta account so we can request day-level breakdowns.
+  </div>
+  {% endif %}
+</div>
+
+<!-- ============================================================ -->
+<!-- ACCOUNT SCORECARD + OUTLIERS                                  -->
+<!-- ============================================================ -->
+<div class="row g-4 mb-4">
+  <div class="col-lg-7">
+    <div class="card p-4 h-100">
+      <h5 class="fw-semibold mb-3">Account scorecard</h5>
+      {% if account_rows %}
+      <canvas id="chartAccounts" height="110"
+              data-labels='{{ account_rows | map(attribute="name") | list | tojson | safe }}'
+              data-spend='{{ account_rows | map(attribute="spend") | list | tojson | safe }}'
+              data-revenue='{{ account_rows | map(attribute="revenue") | list | tojson | safe }}'
+              data-roas='{{ account_rows | map(attribute="roas") | list | tojson | safe }}'></canvas>
+      <div class="table-responsive mt-3">
+        <table class="table align-middle mb-0">
+          <thead>
+            <tr>
+              <th>Account</th>
+              <th class="text-end">Spend</th>
+              <th class="text-end">Revenue</th>
+              <th class="text-end">ROAS</th>
+              <th class="text-end">Results</th>
+              <th class="text-end">CPA</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in account_rows %}
+            <tr>
+              <td><a class="fw-semibold text-decoration-none" href="{{ url_for('account_analytics', account_id=row.account_id) }}">{{ row.name }}</a></td>
+              <td class="text-end money" data-usd="{{ row.spend }}">${{ '%.2f' | format(row.spend) }}</td>
+              <td class="text-end money" data-usd="{{ row.revenue }}">${{ '%.2f' | format(row.revenue) }}</td>
+              <td class="text-end fw-semibold {% if row.roas >= 2 %}text-success{% elif row.roas < 1 and row.spend > 0 %}text-danger{% endif %}">{{ '%.2f' | format(row.roas) }}x</td>
+              <td class="text-end">{{ row.purchases }}</td>
+              <td class="text-end money" data-usd="{{ row.cpa }}">${{ '%.2f' | format(row.cpa) }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <div class="empty-state mb-0">
+        <strong>No data yet</strong>
+        Sync at least one account to populate the scorecard.
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="col-lg-5">
+    <div class="card p-4 h-100">
+      <h5 class="fw-semibold mb-3">Auto-flagged insights</h5>
+      {% if outliers %}
+      <div class="d-flex flex-column gap-2">
+        {% for note in outliers %}
+        <div class="insight-card insight-{{ note.kind }}">
+          <div class="insight-title">{{ note.title }}</div>
+          <div class="insight-body">{{ note.body | safe }}</div>
+          {% if note.ad_id %}
+          <a class="insight-action" href="{{ url_for('ad_detail', ad_id=note.ad_id) }}">Inspect creative →</a>
+          {% endif %}
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}
+      <p class="text-muted mb-0">Nothing unusual yet. Once you have several ads and meaningful spend, this panel will flag standouts and traps automatically.</p>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- FUNNEL / STATUS MIX / CREATIVE TYPE                            -->
+<!-- ============================================================ -->
+<div class="row g-4 mb-4">
+  <div class="col-lg-5">
+    <div class="card p-4 h-100">
+      <h5 class="fw-semibold mb-3">Conversion funnel</h5>
+      <div class="funnel">
+        <div class="funnel-step">
+          <div class="funnel-label">Impressions</div>
+          <div class="funnel-bar" style="width: 100%"></div>
+          <div class="funnel-value">{{ '{:,}'.format(funnel.impressions) }}</div>
+        </div>
+        <div class="funnel-step">
+          <div class="funnel-label">Clicks</div>
+          <div class="funnel-bar" style="width: {{ (funnel.clicks / funnel.impressions * 100) if funnel.impressions else 0 }}%"></div>
+          <div class="funnel-value">{{ '{:,}'.format(funnel.clicks) }} <span class="text-faint small">({{ funnel.click_rate }}%)</span></div>
+        </div>
+        <div class="funnel-step">
+          <div class="funnel-label">Purchases</div>
+          <div class="funnel-bar" style="width: {{ (funnel.purchases / funnel.impressions * 100) if funnel.impressions else 0 }}%"></div>
+          <div class="funnel-value">{{ '{:,}'.format(funnel.purchases) }} <span class="text-faint small">({{ funnel.conversion_rate }}% of clicks)</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-3 col-md-6">
+    <div class="card p-4 h-100">
+      <h5 class="fw-semibold mb-3">Status mix</h5>
+      {% if status_mix %}
+      <canvas id="chartStatusMix" height="160"
+              data-labels='{{ status_mix.keys() | list | tojson | safe }}'
+              data-values='{{ status_mix.values() | list | tojson | safe }}'></canvas>
+      {% else %}
+      <p class="text-muted small mb-0">No ads to break down.</p>
+      {% endif %}
+    </div>
+  </div>
+  <div class="col-lg-4 col-md-6">
+    <div class="card p-4 h-100">
+      <h5 class="fw-semibold mb-3">Creative format</h5>
+      {% if creative_type_mix %}
+      <canvas id="chartCreativeMix" height="160"
+              data-labels='{{ creative_type_mix.keys() | list | tojson | safe }}'
+              data-values='{{ creative_type_mix.values() | list | tojson | safe }}'></canvas>
+      {% else %}
+      <p class="text-muted small mb-0">No creatives yet.</p>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- CAMPAIGN LEADERBOARD                                          -->
+<!-- ============================================================ -->
+<div class="card p-4 mb-4">
+  <div class="d-flex align-items-center justify-content-between mb-3">
+    <h5 class="fw-semibold mb-0">Campaign leaderboard</h5>
+    <span class="text-faint small">{{ campaign_rows|length }} campaign{{ '' if campaign_rows|length == 1 else 's' }}</span>
+  </div>
+  {% if campaign_rows %}
+  <div class="table-responsive">
+    <table class="table align-middle mb-0 sortable">
+      <thead>
+        <tr>
+          <th>Campaign</th>
+          <th>Account</th>
+          <th class="text-end">Spend</th>
+          <th class="text-end">Results</th>
+          <th class="text-end">CPA</th>
+          <th class="text-end">ROAS</th>
+          <th class="text-end">CTR</th>
+          <th class="text-end">Ads</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in campaign_rows %}
+        <tr>
+          <td class="fw-semibold">{{ row.name }}</td>
+          <td class="text-muted small">{{ row.account_name }}</td>
+          <td class="text-end money" data-usd="{{ row.spend }}">${{ '%.2f' | format(row.spend) }}</td>
+          <td class="text-end">{{ row.purchases }}</td>
+          <td class="text-end money" data-usd="{{ row.cpa }}">${{ '%.2f' | format(row.cpa) }}</td>
+          <td class="text-end fw-semibold {% if row.roas >= 2 %}text-success{% elif row.roas < 1 and row.spend > 0 %}text-danger{% endif %}">{{ '%.2f' | format(row.roas) }}x</td>
+          <td class="text-end">{{ '%.2f' | format(row.ctr) }}%</td>
+          <td class="text-end">{{ row.ads_count }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="empty-state mb-0">
+    <strong>No campaigns</strong>
+    Sync at least one connected account to populate the leaderboard.
+  </div>
+  {% endif %}
+</div>
+
+<!-- ============================================================ -->
+<!-- CREATIVE LEADERBOARD                                          -->
+<!-- ============================================================ -->
+<div class="card p-4 mb-4">
+  <h5 class="fw-semibold mb-3">Top creatives</h5>
+  {% if creative_rows %}
+  <div class="creative-grid">
+    {% for ad in creative_rows %}
+    <a class="creative-tile" href="{{ url_for('ad_detail', ad_id=ad.id) }}">
+      {% set thumb = ad.thumbnail_url or ad.image_url %}
+      <div class="creative-tile-media">
+        {% if thumb %}<img src="{{ thumb }}" alt="">{% else %}<span class="creative-tile-placeholder">No preview</span>{% endif %}
+      </div>
+      <div class="creative-tile-body">
+        <div class="fw-semibold text-truncate">{{ ad.name }}</div>
+        <div class="text-faint small text-truncate">{{ ad.account_name }}</div>
+        <div class="creative-tile-metrics">
+          <div><span class="label">Spend</span><span class="money" data-usd="{{ ad.spend_usd }}">${{ '%.2f' | format(ad.spend_usd) }}</span></div>
+          <div><span class="label">ROAS</span><span>{{ '%.2f' | format(ad.roas) }}x</span></div>
+          <div><span class="label">Results</span><span>{{ ad.purchases }}</span></div>
+        </div>
+      </div>
+    </a>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty-state mb-0">
+    <strong>No creatives</strong>
+    Sync ads to build the leaderboard.
+  </div>
+  {% endif %}
+</div>
+
+<!-- ============================================================ -->
+<!-- EDITOR ATTRIBUTION                                            -->
+<!-- ============================================================ -->
+<div class="card p-4 mb-4">
+  <div class="d-flex align-items-center justify-content-between mb-3">
+    <div>
+      <h5 class="fw-semibold mb-1">By editor</h5>
+      <p class="text-muted small mb-0">Performance of ads tagged with an editor token (e.g. <code>| Kat |</code>, <code>| Anthony |</code>) in the ad name. Untagged ads are excluded.</p>
+    </div>
+    <span class="text-faint small">{{ editor_rows|length }} editor{{ '' if editor_rows|length == 1 else 's' }} matched</span>
+  </div>
+
+  {% if editor_rows %}
+  <div class="row g-3 mb-3">
+    {% for row in editor_rows %}
+    <div class="col-md-6">
+      <div class="card p-3 h-100">
+        <div class="d-flex align-items-center justify-content-between mb-2">
+          <div>
+            <div class="eyebrow mb-1">Editor</div>
+            <h5 class="fw-semibold mb-0">{{ row.editor }}</h5>
+          </div>
+          <span class="status-pill {% if row.roas >= 2 %}is-running{% elif row.roas < 1 and row.spend > 0 %}is-stopped{% else %}is-pending{% endif %}">
+            {{ '%.2f' | format(row.roas) }}x ROAS
+          </span>
+        </div>
+        <div class="summary-grid" style="grid-template-columns: repeat(2, minmax(0, 1fr));">
+          <div>
+            <div class="label">Spend</div>
+            <div class="value money" data-usd="{{ row.spend }}">${{ '%.2f' | format(row.spend) }}</div>
+          </div>
+          <div>
+            <div class="label">Results</div>
+            <div class="value">{{ row.purchases }}</div>
+          </div>
+          <div>
+            <div class="label">CTR</div>
+            <div class="value">{{ '%.2f' | format(row.ctr) }}%</div>
+          </div>
+          <div>
+            <div class="label">CPM</div>
+            <div class="value money" data-usd="{{ row.cpm }}">${{ '%.2f' | format(row.cpm) }}</div>
+          </div>
+          <div>
+            <div class="label">CPA</div>
+            <div class="value money" data-usd="{{ row.cpa }}">${{ '%.2f' | format(row.cpa) }}</div>
+          </div>
+          <div>
+            <div class="label">Ads owned</div>
+            <div class="value">{{ row.ads_count }}</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <div class="table-responsive">
+    <table class="table align-middle mb-0">
+      <thead>
+        <tr>
+          <th>Editor</th>
+          <th class="text-end">Ads</th>
+          <th class="text-end">Spend</th>
+          <th class="text-end">ROAS</th>
+          <th class="text-end">Results</th>
+          <th class="text-end">CPA</th>
+          <th class="text-end">CTR</th>
+          <th class="text-end">CPM</th>
+          <th class="text-end">Impressions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in editor_rows %}
+        <tr>
+          <td class="fw-semibold">{{ row.editor }}</td>
+          <td class="text-end">{{ row.ads_count }}</td>
+          <td class="text-end money" data-usd="{{ row.spend }}">${{ '%.2f' | format(row.spend) }}</td>
+          <td class="text-end fw-semibold {% if row.roas >= 2 %}text-success{% elif row.roas < 1 and row.spend > 0 %}text-danger{% endif %}">{{ '%.2f' | format(row.roas) }}x</td>
+          <td class="text-end">{{ row.purchases }}</td>
+          <td class="text-end money" data-usd="{{ row.cpa }}">${{ '%.2f' | format(row.cpa) }}</td>
+          <td class="text-end">{{ '%.2f' | format(row.ctr) }}%</td>
+          <td class="text-end money" data-usd="{{ row.cpm }}">${{ '%.2f' | format(row.cpm) }}</td>
+          <td class="text-end">{{ '{:,}'.format(row.impressions) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="empty-state mb-0">
+    <strong>No editor-tagged ads yet</strong>
+    Add <code>| Kat |</code> or <code>| Anthony |</code> to ad names in Meta to credit them here.
+  </div>
+  {% endif %}
+</div>
+
+<!-- ============================================================ -->
+<!-- COUNTRY / PLACEMENT / DEVICE                                  -->
+<!-- ============================================================ -->
+<div class="row g-4 mb-4">
+  <div class="col-lg-4">
+    <div class="card p-4 h-100">
+      <h5 class="fw-semibold mb-3">Top countries</h5>
+      {% if country %}
+      <canvas id="chartCountry" height="220"
+              data-labels='{{ country[:10] | map(attribute="country") | list | tojson | safe }}'
+              data-spend='{{ country[:10] | map(attribute="spend") | list | tojson | safe }}'
+              data-purchases='{{ country[:10] | map(attribute="purchases") | list | tojson | safe }}'></canvas>
+      <div class="table-responsive mt-3">
+        <table class="table table-sm align-middle mb-0">
+          <thead><tr><th>Country</th><th class="text-end">Spend</th><th class="text-end">CPA</th><th class="text-end">ROAS</th></tr></thead>
+          <tbody>
+            {% for row in country[:8] %}
+            <tr>
+              <td>{{ row.country }}</td>
+              <td class="text-end money" data-usd="{{ row.spend }}">${{ '%.2f' | format(row.spend) }}</td>
+              <td class="text-end money" data-usd="{{ row.cpa }}">${{ '%.2f' | format(row.cpa) }}</td>
+              <td class="text-end">{{ '%.2f' | format(row.roas) }}x</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <p class="text-muted small mb-0">No country breakdown available for this range.</p>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="col-lg-4">
+    <div class="card p-4 h-100">
+      <h5 class="fw-semibold mb-3">Placement</h5>
+      {% if placement %}
+      <canvas id="chartPlacement" height="220"
+              data-labels='{{ placement[:10] | map(attribute="label") | list | tojson | safe }}'
+              data-spend='{{ placement[:10] | map(attribute="spend") | list | tojson | safe }}'></canvas>
+      <ul class="list-unstyled small mt-3 mb-0">
+        {% for row in placement[:6] %}
+        <li class="d-flex justify-content-between border-bottom py-1">
+          <span class="text-truncate me-2">{{ row.label }}</span>
+          <span class="text-muted">{{ row.purchases }} · {{ '%.2f' | format(row.roas) }}x</span>
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <p class="text-muted small mb-0">No placement data available for this range.</p>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="col-lg-4">
+    <div class="card p-4 h-100">
+      <h5 class="fw-semibold mb-3">Device</h5>
+      {% if device %}
+      <canvas id="chartDevice" height="220"
+              data-labels='{{ device | map(attribute="label") | list | tojson | safe }}'
+              data-spend='{{ device | map(attribute="spend") | list | tojson | safe }}'></canvas>
+      <ul class="list-unstyled small mt-3 mb-0">
+        {% for row in device %}
+        <li class="d-flex justify-content-between border-bottom py-1">
+          <span>{{ row.label }}</span>
+          <span class="text-muted">{{ row.purchases }} · {{ '%.2f' | format(row.roas) }}x</span>
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <p class="text-muted small mb-0">No device data available for this range.</p>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- DEMOGRAPHIC HEATMAP                                           -->
+<!-- ============================================================ -->
+<div class="card p-4 mb-4">
+  <h5 class="fw-semibold mb-3">Demographics</h5>
+  {% if demographics.ages and demographics.genders %}
+  <div class="heatmap-wrap">
+    <table class="heatmap">
+      <thead>
+        <tr>
+          <th></th>
+          {% for gender in demographics.genders %}
+          <th>{{ gender | title }}</th>
+          {% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in demographics.rows %}
+        <tr>
+          <th>{{ row.age }}</th>
+          {% for cell in row.cells %}
+          <td class="heatmap-cell" data-value="{{ cell.purchases }}">
+            <div class="fw-semibold">{{ cell.purchases }}</div>
+            <div class="text-faint small">CPA <span class="money" data-usd="{{ cell.cpa }}">${{ '%.2f' | format(cell.cpa) }}</span></div>
+            <div class="text-faint small">ROAS {{ '%.2f' | format(cell.roas) }}x</div>
+          </td>
+          {% endfor %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <p class="text-faint small mt-3 mb-0">Cells are colored by purchase volume. Hover to highlight; CPA shown beneath each count.</p>
+  {% else %}
+  <div class="empty-state mb-0">
+    <strong>No demographic data available</strong>
+    Connect an account and select a date range with active campaigns.
+  </div>
+  {% endif %}
+</div>
+
+<!-- ============================================================ -->
+<!-- HOURLY                                                        -->
+<!-- ============================================================ -->
+<div class="card p-4 mb-4">
+  <h5 class="fw-semibold mb-3">Hour of day</h5>
+  {% if hourly %}
+  <canvas id="chartHourly" height="100"
+          data-labels='{{ hourly | map(attribute="label") | list | tojson | safe }}'
+          data-spend='{{ hourly | map(attribute="spend") | list | tojson | safe }}'
+          data-purchases='{{ hourly | map(attribute="purchases") | list | tojson | safe }}'></canvas>
+  {% else %}
+  <p class="text-muted small mb-0">Hour-of-day breakdown not available.</p>
+  {% endif %}
+</div>
+
+<!-- ============================================================ -->
+<!-- FREQUENCY SCATTER                                             -->
+<!-- ============================================================ -->
+<div class="card p-4 mb-4">
+  <h5 class="fw-semibold mb-3">Ad fatigue · Frequency vs CTR</h5>
+  {% if scatter %}
+  <canvas id="chartScatter" height="120" data-points='{{ scatter | tojson | safe }}'></canvas>
+  <p class="text-faint small mt-2 mb-0">Each dot is a creative. Higher frequency + falling CTR usually signals fatigue — time to refresh.</p>
+  {% else %}
+  <p class="text-muted small mb-0">Re-sync to capture frequency data from Meta. Ads with under 200 impressions are excluded.</p>
+  {% endif %}
+</div>
+
+<!-- ============================================================ -->
+<!-- SPEND DISTRIBUTION                                            -->
+<!-- ============================================================ -->
+<div class="card p-4 mb-4">
+  <h5 class="fw-semibold mb-3">Spend distribution</h5>
+  {% if distribution %}
+  <div class="d-flex flex-column gap-3">
+    {% for account in distribution %}
+    <div>
+      <div class="d-flex justify-content-between align-items-center mb-1">
+        <strong>{{ account.name }}</strong>
+        <span class="money text-muted" data-usd="{{ account.spend }}" data-decimals="0">${{ '%.0f' | format(account.spend) }}</span>
+      </div>
+      <div class="dist-bar">
+        {% for camp in account.campaigns %}
+        <div class="dist-segment"
+             style="width: {{ (camp.spend / account.spend * 100) if account.spend else 0 }}%"
+             data-bs-toggle="tooltip"
+             title="{{ camp.name }} · ${{ '%.2f' | format(camp.spend) }}"></div>
+        {% endfor %}
+      </div>
+      <div class="text-faint small mt-1">
+        {% for camp in account.campaigns[:3] %}
+          <span class="me-3">{{ camp.name }}</span>
+        {% endfor %}
+        {% if account.campaigns|length > 3 %}<span>· +{{ account.campaigns|length - 3 }} more</span>{% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="text-muted small mb-0">No spend recorded for this period.</p>
+  {% endif %}
+</div>
+
+<script src="{{ url_for('static', filename='analytics.js') }}"></script>
+{% endblock %}

@@ -1,23 +1,37 @@
 {% extends 'base.html' %}
+{% block title %}New user · Whitebeard Ad Studio{% endblock %}
 {% block content %}
-<h2>Create a new user</h2>
-<div class="card p-3">
-  <form method="post">
-    <div class="mb-3">
-      <label class="form-label">Username</label>
-      <input type="text" name="username" class="form-control" required>
+<div class="page-header">
+  <div>
+    <p class="eyebrow mb-2">Administration</p>
+    <h1>Create user</h1>
+    <p class="text-muted mb-0">Add a teammate and decide whether they should have administrator privileges.</p>
+  </div>
+  <div class="page-header-actions">
+    <a class="btn btn-outline-secondary" href="{{ url_for('admin_users') }}">Cancel</a>
+  </div>
+</div>
+
+<div class="row justify-content-center">
+  <div class="col-lg-7">
+    <div class="card p-4">
+      <form method="post" class="d-grid gap-3">
+        <div>
+          <label class="form-label" for="username">Username</label>
+          <input id="username" type="text" name="username" class="form-control" autocomplete="off" required autofocus>
+        </div>
+        <div>
+          <label class="form-label" for="password">Password</label>
+          <input id="password" type="password" name="password" class="form-control" autocomplete="new-password" required>
+          <div class="form-text">Pick something long. Users can be created with admin rights below.</div>
+        </div>
+        <div class="form-check">
+          <input id="is_admin" type="checkbox" name="is_admin" class="form-check-input">
+          <label for="is_admin" class="form-check-label">Grant administrator privileges</label>
+        </div>
+        <button type="submit" class="btn btn-primary">Create user</button>
+      </form>
     </div>
-    <div class="mb-3">
-      <label class="form-label">Password</label>
-      <input type="password" name="password" class="form-control" required>
-    </div>
-    <div class="mb-3 form-check">
-      <input type="checkbox" name="is_admin" class="form-check-input">
-      <label class="form-check-label">Administrator</label>
-    </div>
-    <div class="d-grid">
-      <button type="submit" class="btn btn-primary">Create user</button>
-    </div>
-  </form>
+  </div>
 </div>
 {% endblock %}

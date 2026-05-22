@@ -1,103 +1,163 @@
 {% extends 'base.html' %}
+{% block title %}{{ ad.name }} · Whitebeard Ad Studio{% endblock %}
 {% block content %}
-<div class="d-flex flex-column flex-md-row align-items-start justify-content-between gap-3 mb-4">
+<div class="page-header">
   <div>
-    <p class="text-uppercase text-secondary mb-1">Creative detail</p>
-    <h1 class="fw-semibold mb-1">{{ ad.name }}</h1>
-    <p class="text-muted">Analyzed script, audience awareness, tone, style and performance metrics for rapid optimization.</p>
-    <div class="mt-2">
-      <span class="badge bg-info text-dark me-2">{{ ad.status }}</span>
-      <span class="badge bg-secondary">{{ account.name }}</span>
-    </div>
+    <p class="eyebrow mb-2">
+      Creative · {{ account.name }} ·
+      <span class="status-pill is-{{ ad.status|default('paused')|lower }}">{{ ad.status }}</span>
+    </p>
+    <h1>{{ ad.name }}</h1>
+    {% if ad.campaign_name or ad.adset_name %}
+    <p class="text-muted mb-0">
+      {% if ad.campaign_name %}Campaign · <strong>{{ ad.campaign_name }}</strong>{% endif %}
+      {% if ad.adset_name %} · Ad set · <strong>{{ ad.adset_name }}</strong>{% endif %}
+    </p>
+    {% endif %}
   </div>
-  <div class="d-flex gap-2">
+  <div class="page-header-actions">
     <a class="btn btn-outline-secondary" href="{{ url_for('account_detail', account_id=account.id) }}">Back to account</a>
-    <a class="btn btn-primary" href="{{ url_for('accounts') }}">Accounts</a>
   </div>
 </div>
+
 <div class="row g-4">
   <div class="col-lg-7">
     <div class="card p-4 mb-4">
-      <h5 class="mb-3">Video script analysis</h5>
+      <h5 class="fw-semibold mb-3">Creative preview</h5>
+      <div class="creative-stage">
+        {% if ad.video_source_url %}
+          <video controls preload="metadata"
+                 {% if ad.thumbnail_url %}poster="{{ ad.thumbnail_url }}"{% endif %}>
+            <source src="{{ ad.video_source_url }}" type="video/mp4">
+            Your browser does not support embedded video.
+          </video>
+        {% elif ad.image_url %}
+          <img src="{{ ad.image_url }}" alt="{{ ad.name }}">
+        {% elif ad.thumbnail_url %}
+          <img src="{{ ad.thumbnail_url }}" alt="{{ ad.name }}">
+        {% else %}
+          <div class="creative-empty">
+            <strong class="d-block text-muted mb-1">No preview available</strong>
+            <span class="small">Re-sync the account to fetch the latest creative{% if ad.creative_type %} ({{ ad.creative_type|lower }}){% endif %}.</span>
+          </div>
+        {% endif %}
+      </div>
+      {% if ad.video_id and not ad.video_source_url and ad.thumbnail_url %}
+      <p class="text-muted small mt-2 mb-0">Video stream unavailable. <a href="https://www.facebook.com/video.php?v={{ ad.video_id }}" target="_blank" rel="noopener">Open on Facebook ↗</a></p>
+      {% endif %}
+    </div>
+
+    <div class="card p-4 mb-4">
+      <h5 class="fw-semibold mb-3">Script analysis</h5>
       <div class="row g-3">
         <div class="col-md-6">
-          <div class="card analysis-card p-3 h-100">
-            <span class="text-secondary">Tone</span>
-            <h4 class="mt-2">{{ analysis.tone | title }}</h4>
+          <div class="summary-grid" style="grid-template-columns: 1fr;">
+            <div>
+              <div class="label">Tone</div>
+              <div class="value">{{ analysis.tone | title }}</div>
+            </div>
           </div>
         </div>
         <div class="col-md-6">
-          <div class="card analysis-card p-3 h-100">
-            <span class="text-secondary">Style</span>
-            <h4 class="mt-2">{{ analysis.style | title }}</h4>
+          <div class="summary-grid" style="grid-template-columns: 1fr;">
+            <div>
+              <div class="label">Style</div>
+              <div class="value">{{ analysis.style | title }}</div>
+            </div>
           </div>
         </div>
         <div class="col-md-6">
-          <div class="card analysis-card p-3 h-100">
-            <span class="text-secondary">Awareness</span>
-            <h4 class="mt-2">{{ analysis.awareness_level | title }}</h4>
+          <div class="summary-grid" style="grid-template-columns: 1fr;">
+            <div>
+              <div class="label">Awareness</div>
+              <div class="value">{{ analysis.awareness_level | title }}</div>
+            </div>
           </div>
         </div>
         <div class="col-md-6">
-          <div class="card analysis-card p-3 h-100">
-            <span class="text-secondary">Score</span>
-            <h4 class="mt-2">{{ analysis.score }}/10</h4>
+          <div class="summary-grid" style="grid-template-columns: 1fr;">
+            <div>
+              <div class="label">Score</div>
+              <div class="value">{{ analysis.score }} / 10</div>
+            </div>
           </div>
         </div>
       </div>
-      <div class="mt-4">
-        <h6>Key hook</h6>
-        <p>{{ analysis.best_hook or 'No clear hook detected. Try a shorter opening sentence.' }}</p>
-        <h6 class="mt-3">Keywords</h6>
-        <p>{{ analysis.keywords or 'No strong keywords identified.' }}</p>
+      <hr class="divider">
+      <div class="mb-2">
+        <span class="eyebrow">Key hook</span>
+        <p class="mb-0">{{ analysis.best_hook or 'No clear hook detected. Try a shorter opening sentence.' }}</p>
+      </div>
+      <div>
+        <span class="eyebrow">Keywords</span>
+        <p class="mb-0">{{ analysis.keywords or 'No strong keywords identified.' }}</p>
       </div>
     </div>
+
     <div class="card p-4">
-      <h5 class="mb-3">Video script</h5>
-      <div class="script-panel">{{ ad.script }}</div>
+      <h5 class="fw-semibold mb-3">Script</h5>
+      <div class="script-panel">{{ ad.script or 'No script attached to this creative.' }}</div>
     </div>
   </div>
+
   <div class="col-lg-5">
     <div class="card p-4 mb-4">
-      <h5 class="mb-3">Performance snapshot</h5>
-      <div class="row g-3">
-        <div class="col-6">
-          <p class="text-secondary mb-1">Spend</p>
-          <h4>${{ '%.2f' | format(performance.spend) }}</h4>
+      <h5 class="fw-semibold mb-3">Performance snapshot</h5>
+      <div class="summary-grid">
+        <div>
+          <div class="label">Spend</div>
+          <div class="value money" data-usd="{{ performance.spend }}">${{ '%.2f' | format(performance.spend) }}</div>
         </div>
-        <div class="col-6">
-          <p class="text-secondary mb-1">Revenue</p>
-          <h4>${{ '%.2f' | format(performance.revenue) }}</h4>
+        <div>
+          <div class="label">Revenue</div>
+          <div class="value money" data-usd="{{ performance.revenue }}">${{ '%.2f' | format(performance.revenue) }}</div>
         </div>
-        <div class="col-6">
-          <p class="text-secondary mb-1">Impressions</p>
-          <h4>{{ performance.impressions | int }}</h4>
+        <div>
+          <div class="label">Results</div>
+          <div class="value">{{ performance.purchases }}</div>
         </div>
-        <div class="col-6">
-          <p class="text-secondary mb-1">Clicks</p>
-          <h4>{{ performance.clicks | int }}</h4>
+        <div>
+          <div class="label">ROAS</div>
+          <div class="value">{{ '%.2f' | format(performance.roas) }}x</div>
         </div>
-        <div class="col-6">
-          <p class="text-secondary mb-1">CTR</p>
-          <h4>{{ performance.ctr }}%</h4>
+        <div>
+          <div class="label">Impressions</div>
+          <div class="value">{{ performance.impressions | int }}</div>
         </div>
-        <div class="col-6">
-          <p class="text-secondary mb-1">CPC</p>
-          <h4>${{ '%.2f' | format(performance.cpc) }}</h4>
+        <div>
+          <div class="label">Clicks</div>
+          <div class="value">{{ performance.clicks | int }}</div>
+        </div>
+        <div>
+          <div class="label">CTR</div>
+          <div class="value">{{ performance.ctr }}%</div>
+        </div>
+        <div>
+          <div class="label">CPC</div>
+          <div class="value money" data-usd="{{ performance.cpc }}">${{ '%.2f' | format(performance.cpc) }}</div>
         </div>
       </div>
     </div>
+
     <div class="card p-4 mb-4">
-      <h5 class="mb-3">Optimization opportunities</h5>
-      <ul class="list-group list-group-flush">
+      <h5 class="fw-semibold mb-3">Optimization opportunities</h5>
+      {% if recommendations %}
+      <ul class="list-unstyled d-flex flex-column gap-2 mb-0">
         {% for rec in recommendations %}
-        <li class="list-group-item px-0 py-3">{{ rec }}</li>
+        <li class="d-flex gap-2 align-items-start">
+          <span class="text-primary fw-bold">·</span>
+          <span>{{ rec }}</span>
+        </li>
         {% endfor %}
       </ul>
+      {% else %}
+      <p class="text-muted mb-0">No suggestions right now — the analysis didn't surface anything actionable.</p>
+      {% endif %}
     </div>
+
     <div class="card p-4">
-      <h5 class="mb-3">Suggested next actions</h5>
-      <p class="text-muted">Use this view to refine the script, test new hooks, and compare the creative against the rest of the account on the dashboard.</p>
+      <h5 class="fw-semibold mb-3">Next actions</h5>
+      <p class="text-muted small mb-3">Use this view to refine the script, test new hooks, and compare against the rest of the account.</p>
       <a class="btn btn-primary w-100" href="{{ url_for('account_detail', account_id=account.id) }}">Return to creative list</a>
     </div>
   </div>

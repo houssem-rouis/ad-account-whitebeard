@@ -6,3 +6,5 @@ instance/
 .env.*
 *.sqlite
 .DS_Store
+# Local user data (contains Meta access tokens — do not commit)
+data/

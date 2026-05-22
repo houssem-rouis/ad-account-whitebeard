@@ -1,53 +1,76 @@
 {% extends 'base.html' %}
+{% block title %}Ad accounts · Whitebeard Ad Studio{% endblock %}
 {% block content %}
-<div class="d-flex flex-column flex-md-row align-items-start justify-content-between gap-3 mb-4">
+<div class="page-header">
   <div>
-    <p class="text-uppercase text-secondary mb-1">Ad accounts</p>
-    <h1 class="fw-semibold mb-1">Connected networks</h1>
-    <p class="text-muted">Organize ad accounts, connect Meta campaigns, and open detailed creative analytics in one place.</p>
+    <p class="eyebrow mb-2">Ad accounts</p>
+    <h1>Connected networks</h1>
+    <p class="text-muted mb-0">Organize accounts, link Meta credentials, and dive into creative analytics for each one.</p>
   </div>
-  <a class="btn btn-primary btn-lg" href="{{ url_for('dashboard') }}">Back to dashboard</a>
+  <div class="page-header-actions">
+    <a class="btn btn-outline-secondary" href="{{ url_for('dashboard') }}">Back to dashboard</a>
+  </div>
 </div>
+
 <div class="row g-4">
   <div class="col-lg-4">
-    <div class="card p-4 h-100">
-      <h5 class="mb-3">Add account</h5>
+    <div class="card p-4">
+      <h5 class="fw-semibold mb-1">Add an account</h5>
+      <p class="text-muted small mb-3">Create the local record first, then connect its Meta credentials.</p>
       <form method="post" class="d-grid gap-3">
         <div>
-          <label class="form-label">Account name</label>
-          <input type="text" name="name" class="form-control" placeholder="Q2 Growth" required>
+          <label class="form-label" for="acct-name">Account name</label>
+          <input id="acct-name" type="text" name="name" class="form-control" placeholder="e.g. Q2 Growth" required>
         </div>
         <div>
-          <label class="form-label">Provider / Network</label>
-          <input type="text" name="provider" class="form-control" placeholder="Meta, Google, TikTok" required>
+          <label class="form-label" for="acct-provider">Provider</label>
+          <input id="acct-provider" type="text" name="provider" class="form-control" placeholder="Meta, Google, TikTok" required>
         </div>
         <button type="submit" class="btn btn-primary">Add account</button>
       </form>
     </div>
   </div>
+
   <div class="col-lg-8">
-    <div class="card p-4 h-100">
-      <h5 class="mb-3">Your accounts</h5>
+    <div class="card p-4">
+      <div class="d-flex align-items-center justify-content-between mb-3">
+        <div>
+          <h5 class="fw-semibold mb-1">Your accounts</h5>
+          <p class="text-muted small mb-0">{{ accounts|list|length }} account{{ '' if accounts|list|length == 1 else 's' }} configured</p>
+        </div>
+      </div>
       {% if accounts %}
       <div class="row g-3">
         {% for account in accounts %}
         <div class="col-md-6">
-          <div class="card account-card h-100 p-3">
-            <div>
-              <span class="badge bg-info mb-2">{{ account.provider }}</span>
-              <h5 class="mb-2">{{ account.name }}</h5>
-              <p class="text-muted small mb-3">Created {{ account.created_at }}</p>
+          <div class="card p-3 h-100">
+            <div class="d-flex align-items-center justify-content-between mb-2">
+              <span class="status-pill {% if account.meta_connected %}is-running{% else %}is-pending{% endif %}">
+                {{ 'Connected' if account.meta_connected else 'Not connected' }}
+              </span>
+              <span class="text-faint small">{{ account.provider }}</span>
             </div>
-            <div class="d-flex justify-content-between align-items-center gap-2">
+            <h6 class="mb-1 fw-semibold">{{ account.name }}</h6>
+            <p class="text-muted small mb-3">
+              {% if account.meta_last_synced %}
+                Synced <span class="time-since" data-iso="{{ account.meta_last_synced }}">{{ account.meta_last_synced }}</span>
+              {% else %}
+                Created <span class="time-since" data-iso="{{ account.created_at }}">{{ account.created_at }}</span>
+              {% endif %}
+            </p>
+            <div class="d-flex gap-2">
               <a class="btn btn-outline-primary btn-sm flex-grow-1" href="{{ url_for('account_detail', account_id=account.id) }}">Open</a>
-              <a class="btn btn-outline-secondary btn-sm flex-grow-1" href="{{ url_for('connect_meta', account_id=account.id) }}">Connect</a>
+              <a class="btn btn-outline-secondary btn-sm flex-grow-1" href="{{ url_for('connect_meta', account_id=account.id) }}">{{ 'Settings' if account.meta_connected else 'Connect' }}</a>
             </div>
           </div>
         </div>
         {% endfor %}
       </div>
       {% else %}
-        <p class="text-muted mb-0">Start by creating an account and linking it to your Meta Ads flight.</p>
+      <div class="empty-state">
+        <strong>No ad accounts yet</strong>
+        Create your first account on the left, then connect it to Meta Ads to start importing creatives.
+      </div>
       {% endif %}
     </div>
   </div>

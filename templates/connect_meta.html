@@ -1,20 +1,71 @@
 {% extends 'base.html' %}
+{% block title %}Connect Meta · {{ account.name }}{% endblock %}
 {% block content %}
-<h2>Connect Meta Ads</h2>
-<div class="card p-3">
-  <p>Use your Meta (Facebook) ad account access token and ad account ID to connect this account.</p>
-  <form method="post">
-    <div class="mb-3">
-      <label class="form-label">Meta access token</label>
-      <input type="text" name="access_token" class="form-control" required>
+<div class="page-header">
+  <div>
+    <p class="eyebrow mb-2">Meta integration</p>
+    <h1>Connect Meta Ads</h1>
+    <p class="text-muted mb-0">Link <strong>{{ account.name }}</strong> to a Meta Ads account using a system user or long-lived access token.</p>
+  </div>
+  <div class="page-header-actions">
+    <a class="btn btn-outline-secondary" href="{{ url_for('account_detail', account_id=account.id) }}">Back to account</a>
+  </div>
+</div>
+
+<div class="row g-4">
+  <div class="col-lg-7">
+    <div class="card p-4">
+      <h5 class="fw-semibold mb-3">Credentials</h5>
+      <form method="post" class="d-grid gap-3">
+        <div>
+          <label class="form-label" for="access_token">Meta access token</label>
+          <input id="access_token" type="text" name="access_token" class="form-control"
+                 value="{{ form_token or '' }}" autocomplete="off" required>
+          <div class="form-text">Long-lived token from a Meta app or system user with <code>ads_read</code> permission.</div>
+        </div>
+        <div>
+          <label class="form-label" for="ad_account_id">Ad account ID</label>
+          <input id="ad_account_id" type="text" name="ad_account_id" class="form-control"
+                 placeholder="act_1234567890" value="{{ form_account_id or '' }}" required>
+          <div class="form-text">Found in Ads Manager → Account settings.</div>
+        </div>
+        <button type="submit" class="btn btn-primary">Save & connect</button>
+      </form>
     </div>
-    <div class="mb-3">
-      <label class="form-label">Meta ad account ID</label>
-      <input type="text" name="ad_account_id" class="form-control" placeholder="act_1234567890" required>
+  </div>
+
+  <div class="col-lg-5">
+    <div class="card p-4">
+      <h5 class="fw-semibold mb-3">Connection status</h5>
+      <dl class="mb-0">
+        <dt class="text-muted small fw-normal">Status</dt>
+        <dd class="mb-3">
+          <span class="status-pill {% if account.meta_connected %}is-running{% else %}is-pending{% endif %}">
+            {{ 'Connected' if account.meta_connected else 'Not connected' }}
+          </span>
+        </dd>
+        {% if account.meta_account_name %}
+        <dt class="text-muted small fw-normal">Meta account</dt>
+        <dd class="mb-3 fw-semibold">{{ account.meta_account_name }}</dd>
+        {% endif %}
+        {% if account.meta_currency %}
+        <dt class="text-muted small fw-normal">Native currency</dt>
+        <dd class="mb-3 fw-semibold">{{ account.meta_currency }}</dd>
+        {% endif %}
+        {% if account.meta_last_connected %}
+        <dt class="text-muted small fw-normal">Last saved</dt>
+        <dd class="mb-3">
+          <span class="time-since" data-iso="{{ account.meta_last_connected }}">{{ account.meta_last_connected }}</span>
+        </dd>
+        {% endif %}
+        {% if account.meta_last_synced %}
+        <dt class="text-muted small fw-normal">Last sync</dt>
+        <dd class="mb-0">
+          <span class="time-since" data-iso="{{ account.meta_last_synced }}">{{ account.meta_last_synced }}</span>
+        </dd>
+        {% endif %}
+      </dl>
     </div>
-    <div class="d-grid">
-      <button type="submit" class="btn btn-primary">Connect Meta Ads</button>
-    </div>
-  </form>
+  </div>
 </div>
 {% endblock %}
