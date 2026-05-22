@@ -1,0 +1,70 @@
+{% extends 'base.html' %}
+{% block content %}
+<h2>{{ account.name }}</h2>
+<div class="row">
+  <div class="col-lg-6">
+    <div class="card p-3 mb-3">
+      <h5>Add / analyze ad</h5>
+      <form method="post">
+        {{ form.hidden_tag() }}
+        <div class="mb-3">{{ form.name.label(class_='form-label') }}{{ form.name(class_='form-control') }}</div>
+        <div class="mb-3">{{ form.script.label(class_='form-label') }}{{ form.script(class_='form-control', rows=5) }}</div>
+        <div class="row g-2 mb-3">
+          <div class="col"><label class="form-label">Impressions</label>{{ form.impressions(class_='form-control') }}</div>
+          <div class="col"><label class="form-label">Clicks</label>{{ form.clicks(class_='form-control') }}</div>
+          <div class="col"><label class="form-label">Spend</label>{{ form.spend(class_='form-control') }}</div>
+          <div class="col"><label class="form-label">Revenue</label>{{ form.revenue(class_='form-control') }}</div>
+        </div>
+        <div class="mb-3">{{ form.status.label(class_='form-label') }}{{ form.status(class_='form-select') }}</div>
+        <div class="d-grid">{{ form.submit(class_='btn btn-primary') }}</div>
+      </form>
+    </div>
+  </div>
+  <div class="col-lg-6">
+    <div class="card p-3 mb-3">
+      <h5>Competitor research</h5>
+      <a class="btn btn-outline-secondary w-100 mb-2" href="{{ url_for('competitors', account_id=account.id) }}">Open competitor ads</a>
+      <p class="small mb-0">Add competitor ads only for running campaigns. Filter by newest or oldest in the competitor page.</p>
+    </div>
+  </div>
+</div>
+<div class="card p-3">
+  <h5>Ads for {{ account.name }}</h5>
+  {% if ads %}
+  <div class="table-responsive">
+    <table class="table table-hover">
+      <thead>
+        <tr>
+          <th>Ad</th>
+          <th>Status</th>
+          <th>ROI</th>
+          <th>CTR</th>
+          <th>Analysis</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for ad in ads %}
+        <tr>
+          <td>{{ ad.name }}</td>
+          <td>{{ ad.status }}</td>
+          <td>{{ ad.roi() }}%</td>
+          <td>{{ ad.ctr() }}%</td>
+          <td>
+            {% if ad.analysis %}
+              <strong>Tone:</strong> {{ ad.analysis.tone }}<br>
+              <strong>Style:</strong> {{ ad.analysis.style }}<br>
+              <strong>Awareness:</strong> {{ ad.analysis.awareness_level }}
+            {% else %}
+              No analysis yet
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p>No ads saved yet for this account.</p>
+  {% endif %}
+</div>
+{% endblock %}

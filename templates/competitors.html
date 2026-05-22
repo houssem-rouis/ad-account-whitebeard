@@ -1,0 +1,38 @@
+{% extends 'base.html' %}
+{% block content %}
+<h2>Competitor ads for {{ account.name }}</h2>
+<div class="card p-3 mb-3">
+  <h5>Add competitor ad</h5>
+  <form method="post">
+    {{ form.hidden_tag() }}
+    <div class="mb-3">{{ form.name.label(class_='form-label') }}{{ form.name(class_='form-control') }}</div>
+    <div class="mb-3">{{ form.script.label(class_='form-label') }}{{ form.script(class_='form-control', rows=5) }}</div>
+    <div class="row g-2 mb-3">
+      <div class="col">{{ form.status.label(class_='form-label') }}{{ form.status(class_='form-select') }}</div>
+      <div class="col">{{ form.source.label(class_='form-label') }}{{ form.source(class_='form-control') }}</div>
+    </div>
+    <div class="d-grid">{{ form.submit(class_='btn btn-primary') }}</div>
+  </form>
+</div>
+<div class="card p-3">
+  <h5>Running competitor ads</h5>
+  {% if competitors %}
+    <div class="list-group">
+      {% for comp in competitors %}
+      <div class="list-group-item">
+        <div class="d-flex justify-content-between align-items-start">
+          <div>
+            <strong>{{ comp.name }}</strong> <small class="text-muted">{{ comp.source }}</small><br>
+            <span class="badge bg-success">{{ comp.status }}</span>
+          </div>
+          <small>{{ comp.created_at.strftime('%Y-%m-%d') }}</small>
+        </div>
+        <p class="mb-0 mt-2">{{ comp.script }}</p>
+      </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <p>No competitor ads yet. Add your competitors and sort them manually with newest/oldest records as needed.</p>
+  {% endif %}
+</div>
+{% endblock %}

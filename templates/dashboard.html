@@ -1,0 +1,68 @@
+{% extends 'base.html' %}
+{% block content %}
+<h2>Dashboard</h2>
+<div class="row g-3">
+  <div class="col-lg-8">
+    <div class="card p-3 mb-3">
+      <h5 class="card-title">Campaign health</h5>
+      {% if stats %}
+        <div class="row">
+          {% for account in stats %}
+          <div class="col-md-6 mb-3">
+            <div class="card h-100 bg-light border-0 shadow-sm">
+              <div class="card-body">
+                <h6>{{ account.account.name }}</h6>
+                <p class="mb-1">Spend: ${{ account.total_spend }}</p>
+                <p class="mb-1">Revenue: ${{ account.total_revenue }}</p>
+                <p class="mb-0">ROI: {{ account.roi }}%</p>
+              </div>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+      {% else %}
+        <p>No ad accounts yet. Add one to start analyzing campaigns.</p>
+      {% endif %}
+    </div>
+    <div class="card p-3 mb-3">
+      <h5 class="card-title">Recommendations</h5>
+      {% if recommendations %}
+        {% for rec in recommendations %}
+        <div class="mb-3">
+          <strong>{{ rec.account.name }}</strong>
+          <p class="mb-1">{{ rec.best_tag }}</p>
+          <p class="mb-1">{{ rec.avoid_tag }}</p>
+          <p class="mb-0"><em>{{ rec.next_test }}</em></p>
+        </div>
+        {% endfor %}
+      {% else %}
+        <p>Add ads to generate AI-style recommendations based on results and copy patterns.</p>
+      {% endif %}
+    </div>
+  </div>
+  <div class="col-lg-4">
+    <div class="card p-3 mb-3">
+      <h5 class="card-title">Recent ads</h5>
+      {% if recent_ads %}
+        <ul class="list-group list-group-flush">
+          {% for ad in recent_ads %}
+          <li class="list-group-item">
+            <strong>{{ ad.name }}</strong><br>
+            <small>{{ ad.account.name }} • {{ ad.status }}</small>
+          </li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p>No recent ads available.</p>
+      {% endif %}
+    </div>
+    <div class="card p-3">
+      <h5 class="card-title">Quick actions</h5>
+      <a class="btn btn-outline-primary w-100 mb-2" href="{{ url_for('accounts') }}">Manage ad accounts</a>
+      {% if current_user.is_admin %}
+      <a class="btn btn-outline-secondary w-100" href="{{ url_for('admin_users') }}">Manage users</a>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}

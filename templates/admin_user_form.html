@@ -1,0 +1,13 @@
+{% extends 'base.html' %}
+{% block content %}
+<h2>Create a new user</h2>
+<div class="card p-3">
+  <form method="post">
+    {{ form.hidden_tag() }}
+    <div class="mb-3">{{ form.username.label(class_='form-label') }}{{ form.username(class_='form-control') }}</div>
+    <div class="mb-3">{{ form.password.label(class_='form-label') }}{{ form.password(class_='form-control') }}</div>
+    <div class="mb-3 form-check">{{ form.is_admin(class_='form-check-input') }}{{ form.is_admin.label(class_='form-check-label') }}</div>
+    <div class="d-grid">{{ form.submit(class_='btn btn-primary') }}</div>
+  </form>
+</div>
+{% endblock %}

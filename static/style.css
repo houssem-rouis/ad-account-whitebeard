@@ -1,0 +1,28 @@
+:root {
+  color-scheme: light;
+  background-color: #f8f9fa;
+  color: #212529;
+}
+html[data-theme='dark'] {
+  color-scheme: dark;
+  background-color: #121214;
+  color: #e9ecef;
+}
+body {
+  min-height: 100vh;
+  background-color: var(--bs-body-bg);
+  color: var(--bs-body-color);
+}
+html[data-theme='dark'] body {
+  background-color: #121214;
+  color: #e9ecef;
+}
+.navbar, .card {
+  background-color: var(--bs-body-bg) !important;
+}
+.alert {
+  opacity: 0.98;
+}
+.table {
+  color: inherit;
+}
