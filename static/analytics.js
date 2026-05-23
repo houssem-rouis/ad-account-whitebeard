@@ -248,6 +248,95 @@
     });
   }
 
+  function buildReportSpendRoas() {
+    const canvas = document.getElementById('chartReportSpendRoas');
+    if (!canvas) return;
+    const points = JSON.parse(canvas.dataset.points || '[]');
+    if (!points.length) return;
+    new Chart(canvas, {
+      type: 'scatter',
+      data: {
+        datasets: [{
+          label: 'Ad',
+          data: points.map(function (p) { return { x: p.spend || 0, y: p.roas || 0, name: p.ad_name, purchases: p.purchases || 0 }; }),
+          backgroundColor: function (ctx) { return (ctx.raw && ctx.raw.y >= 1) ? palette.success : palette.rose; },
+          pointRadius: function (ctx) {
+            const p = ctx.raw && ctx.raw.purchases;
+            return 4 + Math.min(10, Math.sqrt(p || 0) * 2);
+          },
+        }],
+      },
+      options: {
+        responsive: true,
+        plugins: {
+          legend: { display: false },
+          tooltip: { callbacks: { label: function (ctx) {
+            const p = ctx.raw;
+            return p.name + ' · $' + p.x.toFixed(2) + ' · ROAS ' + p.y.toFixed(2) + 'x · ' + p.purchases + ' purchases';
+          } } },
+        },
+        scales: {
+          x: { title: { display: true, text: 'Spend ($, last 28d)', color: tickColor() }, ticks: { color: tickColor() }, grid: { color: gridColor() } },
+          y: { title: { display: true, text: 'ROAS', color: tickColor() }, beginAtZero: true, ticks: { color: tickColor() }, grid: { color: gridColor() } },
+        },
+      },
+    });
+  }
+
+  function buildReportAwareness() {
+    const canvas = document.getElementById('chartReportAwareness');
+    if (!canvas) return;
+    const rows = JSON.parse(canvas.dataset.rows || '[]');
+    if (!rows.length) return;
+    new Chart(canvas, {
+      type: 'bar',
+      data: {
+        labels: rows.map(function (r) { return r.stage; }),
+        datasets: [
+          { label: 'Spend', data: rows.map(function (r) { return r.spend || 0; }), backgroundColor: palette.primary, yAxisID: 'y' },
+          { label: 'ROAS', data: rows.map(function (r) { return r.roas || 0; }), backgroundColor: palette.success, type: 'line', yAxisID: 'y1' },
+        ],
+      },
+      options: {
+        responsive: true,
+        plugins: { tooltip: { callbacks: { label: function (ctx) {
+          if (ctx.dataset.label === 'Spend') return 'Spend $' + (ctx.raw || 0).toFixed(2);
+          return 'ROAS ' + (ctx.raw || 0).toFixed(2) + 'x';
+        } } } },
+        scales: {
+          x: { ticks: { color: tickColor() }, grid: { color: gridColor() } },
+          y: { position: 'left', beginAtZero: true, ticks: { color: tickColor() }, grid: { color: gridColor() }, title: { display: true, text: 'Spend', color: tickColor() } },
+          y1: { position: 'right', beginAtZero: true, ticks: { color: tickColor() }, grid: { drawOnChartArea: false }, title: { display: true, text: 'ROAS', color: tickColor() } },
+        },
+      },
+    });
+  }
+
+  function buildReportCountry() {
+    const canvas = document.getElementById('chartReportCountry');
+    if (!canvas) return;
+    const rows = JSON.parse(canvas.dataset.rows || '[]');
+    if (!rows.length) return;
+    new Chart(canvas, {
+      type: 'bar',
+      data: {
+        labels: rows.map(function (r) { return r.country; }),
+        datasets: [
+          { label: 'Purchases', data: rows.map(function (r) { return r.purchases || 0; }), backgroundColor: palette.primary, yAxisID: 'y' },
+          { label: 'ROAS', data: rows.map(function (r) { return r.roas || 0; }), backgroundColor: palette.success, type: 'line', yAxisID: 'y1' },
+        ],
+      },
+      options: {
+        responsive: true,
+        scales: {
+          x: { ticks: { color: tickColor() }, grid: { color: gridColor() } },
+          y: { position: 'left', beginAtZero: true, ticks: { color: tickColor() }, grid: { color: gridColor() }, title: { display: true, text: 'Purchases', color: tickColor() } },
+          y1: { position: 'right', beginAtZero: true, ticks: { color: tickColor() }, grid: { drawOnChartArea: false }, title: { display: true, text: 'ROAS', color: tickColor() } },
+        },
+      },
+    });
+  }
+
   document.addEventListener('DOMContentLoaded', function () {
     buildTimeseries();
     buildAccounts();
@@ -259,5 +348,8 @@
     buildHourly();
     buildScatter();
     colorHeatmap();
+    buildReportSpendRoas();
+    buildReportAwareness();
+    buildReportCountry();
   });
 })();

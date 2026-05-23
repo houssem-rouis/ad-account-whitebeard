@@ -41,6 +41,7 @@ def detect_editor(ad_name):
 
 DATE_RANGES = [
     ("today", "Today"),
+    ("yesterday", "Yesterday"),
     ("last_7d", "Last 7 days"),
     ("last_28d", "Last 28 days"),
     ("last_90d", "Last 90 days"),
@@ -252,6 +253,55 @@ def editor_breakdown(ads):
         })
     rows.sort(key=lambda r: r["spend"], reverse=True)
     return rows
+
+
+def editor_breakdown_from_insight_rows(rows):
+    """Like `editor_breakdown` but built from Meta `level=ad` insights rows.
+
+    Each row carries `ad_name` and metrics for the chosen `date_preset`, so
+    the result respects the analytics date filter. Used when at least one ad
+    account is connected; falls back to the snapshot variant otherwise.
+    """
+    buckets = defaultdict(lambda: {
+        "spend": 0.0, "revenue": 0.0, "clicks": 0, "impressions": 0,
+        "purchases": 0, "ad_ids": set(),
+    })
+    for row in rows:
+        editor = detect_editor(row.get("ad_name", ""))
+        if not editor:
+            continue
+        metrics = _row_metrics(row)
+        bucket = buckets[editor]
+        bucket["spend"] += metrics["spend"]
+        bucket["revenue"] += metrics["revenue"]
+        bucket["clicks"] += metrics["clicks"]
+        bucket["impressions"] += metrics["impressions"]
+        bucket["purchases"] += metrics["purchases"]
+        if row.get("ad_id"):
+            bucket["ad_ids"].add(row["ad_id"])
+
+    out = []
+    for editor, b in buckets.items():
+        spend = b["spend"]
+        revenue = b["revenue"]
+        impressions = b["impressions"]
+        clicks = b["clicks"]
+        purchases = b["purchases"]
+        out.append({
+            "editor": editor,
+            "ads_count": len(b["ad_ids"]),
+            "spend": spend,
+            "revenue": revenue,
+            "roas": round(revenue / spend, 2) if spend else 0,
+            "purchases": purchases,
+            "cpa": round(spend / purchases, 2) if purchases else 0,
+            "ctr": round(clicks / impressions * 100, 2) if impressions else 0,
+            "cpm": round(spend / impressions * 1000, 2) if impressions else 0,
+            "clicks": clicks,
+            "impressions": impressions,
+        })
+    out.sort(key=lambda r: r["spend"], reverse=True)
+    return out
 
 
 def creative_type_mix(ads):

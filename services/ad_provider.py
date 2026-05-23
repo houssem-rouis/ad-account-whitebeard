@@ -218,6 +218,12 @@ def fetch_meta_account_insights(
         return cached
 
     fields = "spend,impressions,clicks,ctr,purchase_roas,actions,frequency,reach,cpm,cpc"
+    if level == "ad":
+        # Meta needs `ad_name` explicit so the editor regex can match `| kat |`
+        # markers; `ad_id` lets us count unique ads per editor.
+        fields += ",ad_id,ad_name"
+    elif level == "campaign":
+        fields += ",campaign_id,campaign_name"
     params = {
         "access_token": access_token,
         "fields": fields,
@@ -270,7 +276,7 @@ def fetch_meta_video_media(video_id: str, access_token: str):
     try:
         resp = requests.get(
             f"{GRAPH_BASE}/{video_id}",
-            params={"access_token": access_token, "fields": "source,picture"},
+            params={"access_token": access_token, "fields": "source,picture,permalink_url"},
             timeout=10,
         )
         if resp.status_code == 200:

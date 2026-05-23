@@ -1,6 +1,11 @@
 import os
 import secrets
+import threading
 from concurrent.futures import ThreadPoolExecutor
+
+from dotenv import load_dotenv
+
+load_dotenv()
 
 from flask import Flask, render_template, redirect, url_for, flash, request, jsonify
 from flask_login import (
@@ -22,8 +27,20 @@ from services.ad_provider import (
     fetch_meta_video_media,
 )
 from analysis import analyze_ad_text
+from services.transcribe import transcribe_video
+from services.copywriter import analyze_copy
+from services.strategist import build_strategist_report
 from treatment import enrich_ad, enrich_ads, fx_rate, FX_RATES_TO_USD
 import insights as insights_mod
+
+# Background workers for video transcription (slow: 10s–2min per ad). Keep
+# small so a burst of transcribe clicks doesn't exhaust the web dyno.
+_TRANSCRIBE_EXECUTOR = ThreadPoolExecutor(max_workers=2)
+_TRANSCRIBE_LOCK = threading.Lock()
+# Single-worker pool for the account-wide strategist report so two clicks
+# can't kick off duplicate Whisper + Claude bills.
+_REPORT_EXECUTOR = ThreadPoolExecutor(max_workers=1)
+_REPORT_LOCK = threading.Lock()
 
 app = Flask(__name__)
 # In production, SECRET_KEY must be set via env var. For local dev we fall back
@@ -60,10 +77,16 @@ def needs_sync(account, minutes=30):
     return (datetime.utcnow() - last_synced_dt).total_seconds() > minutes * 60
 
 
-def build_meta_ad_record(account_id, ad):
+def build_meta_ad_record(account_id, ad, existing=None):
     """Persist only raw provider data. Currency conversion and derived metrics
     are computed at page-render time by `treatment.enrich_ad`, so fixing a bug
-    in that layer doesn't require re-syncing."""
+    in that layer doesn't require re-syncing.
+
+    `existing` is the previously stored record (if any). Transcript fields are
+    carried over so a re-sync doesn't erase work the user already paid Whisper
+    for.
+    """
+    existing = existing or {}
     return {
         "id": ad["id"],
         "external_id": ad.get("external_id"),
@@ -90,6 +113,12 @@ def build_meta_ad_record(account_id, ad):
         "thumbnail_url": ad.get("thumbnail_url"),
         "video_id": ad.get("video_id"),
         "roas_by_country": ad.get("roas_by_country", {}),
+        "transcript": existing.get("transcript"),
+        "transcript_status": existing.get("transcript_status"),
+        "transcript_error": existing.get("transcript_error"),
+        "copy_analysis": existing.get("copy_analysis"),
+        "copy_analysis_status": existing.get("copy_analysis_status"),
+        "copy_analysis_error": existing.get("copy_analysis_error"),
         "created_at": ad.get("created_at", datetime.utcnow().isoformat()),
         "updated_at": datetime.utcnow().isoformat(),
     }
@@ -274,7 +303,9 @@ def dashboard_sync_meta():
                 get_account_token(account), account.get("meta_account_id")
             )
             for ad in ads:
-                ads_data[ad["id"]] = build_meta_ad_record(account_id, ad)
+                ads_data[ad["id"]] = build_meta_ad_record(
+                    account_id, ad, existing=ads_data.get(ad["id"])
+                )
             if ads:
                 account["meta_currency"] = ads[0].get("currency", "USD")
             account["meta_last_synced"] = datetime.utcnow().isoformat()
@@ -368,7 +399,9 @@ def sync_meta(account_id):
         )
         all_ads = FileStore.load("ads", {})
         for ad in ads:
-            all_ads[ad["id"]] = build_meta_ad_record(account_id, ad)
+            all_ads[ad["id"]] = build_meta_ad_record(
+                account_id, ad, existing=all_ads.get(ad["id"])
+            )
         if ads:
             account["meta_currency"] = ads[0].get("currency", "USD")
         FileStore.save("ads", all_ads)
@@ -392,6 +425,548 @@ def sync_meta(account_id):
     return redirect(url_for("account_detail", account_id=account_id))
 
 
+def _update_ad_fields(ad_id, fields):
+    """Read-modify-write a single ad record under a lock to avoid losing
+    concurrent updates from the transcription worker thread."""
+    with _TRANSCRIBE_LOCK:
+        ads_data = FileStore.load("ads", {})
+        record = ads_data.get(ad_id)
+        if not record:
+            return None
+        record.update(fields)
+        record["updated_at"] = datetime.utcnow().isoformat()
+        ads_data[ad_id] = record
+        FileStore.save("ads", ads_data)
+        return record
+
+
+def _run_copy_analysis_job(ad_id):
+    """Pull the latest text for the ad and run the Claude copywriting audit."""
+    ads_data = FileStore.load("ads", {})
+    ad = ads_data.get(ad_id)
+    if not ad:
+        return
+    text = (ad.get("transcript") or ad.get("script") or "").strip()
+    if not text:
+        _update_ad_fields(
+            ad_id,
+            {
+                "copy_analysis_status": "no_text",
+                "copy_analysis_error": "No transcript or script available to analyze.",
+            },
+        )
+        return
+    _update_ad_fields(
+        ad_id, {"copy_analysis_status": "pending", "copy_analysis_error": None}
+    )
+    try:
+        result = analyze_copy(
+            text,
+            ad_context={
+                "name": ad.get("name"),
+                "campaign_name": ad.get("campaign_name"),
+                "creative_type": ad.get("creative_type"),
+                "roas": ad.get("roas"),
+            },
+        )
+        _update_ad_fields(
+            ad_id,
+            {
+                "copy_analysis": result,
+                "copy_analysis_status": "done",
+                "copy_analysis_error": None,
+            },
+        )
+    except Exception as exc:
+        _update_ad_fields(
+            ad_id,
+            {
+                "copy_analysis_status": "failed",
+                "copy_analysis_error": str(exc)[:500],
+            },
+        )
+
+
+def _run_transcription_job(ad_id, video_url):
+    try:
+        transcript = transcribe_video(video_url)
+        if transcript:
+            _update_ad_fields(
+                ad_id,
+                {
+                    "transcript": transcript,
+                    "transcript_status": "done",
+                    "transcript_error": None,
+                },
+            )
+            # Chain the copywriting audit on the fresh transcript so the user
+            # doesn't have to click twice.
+            _TRANSCRIBE_EXECUTOR.submit(_run_copy_analysis_job, ad_id)
+        else:
+            _update_ad_fields(
+                ad_id,
+                {
+                    "transcript": None,
+                    "transcript_status": "no_audio",
+                    "transcript_error": None,
+                },
+            )
+    except Exception as exc:
+        _update_ad_fields(
+            ad_id,
+            {
+                "transcript_status": "failed",
+                "transcript_error": str(exc)[:500],
+            },
+        )
+
+
+@app.route("/ads/<ad_id>/analyze-copy", methods=["POST"])
+@login_required
+def analyze_copy_route(ad_id):
+    ads_data = FileStore.load("ads", {})
+    ad = ads_data.get(ad_id)
+    if not ad:
+        return jsonify(success=False, message="Ad not found."), 404
+    if not (ad.get("transcript") or ad.get("script")):
+        return jsonify(
+            success=False,
+            message="No transcript or script available. Transcribe the video first.",
+        ), 400
+    _update_ad_fields(
+        ad_id, {"copy_analysis_status": "pending", "copy_analysis_error": None}
+    )
+    _TRANSCRIBE_EXECUTOR.submit(_run_copy_analysis_job, ad_id)
+    return jsonify(success=True, status="pending")
+
+
+@app.route("/ads/<ad_id>/copy-analysis-status")
+@login_required
+def copy_analysis_status(ad_id):
+    ads_data = FileStore.load("ads", {})
+    ad = ads_data.get(ad_id)
+    if not ad:
+        return jsonify(success=False, message="Ad not found."), 404
+    return jsonify(
+        success=True,
+        status=ad.get("copy_analysis_status"),
+        analysis=ad.get("copy_analysis"),
+        error=ad.get("copy_analysis_error"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Account-wide strategist report
+# Pipeline (per click):  transcribe all open videos missing transcripts →
+# Claude copywriting audit on every open ad missing one → one final Claude
+# strategist summary that ties metrics + copy_analysis + country breakdown
+# into action-grade recommendations.
+# ---------------------------------------------------------------------------
+
+
+def _is_open_ad(ad):
+    """`Open` = currently delivering. Matches the same logic as the account
+    detail page so the report scope = ads the user is actually paying for."""
+    return (
+        str(ad.get("status", "")).lower() == "running"
+        or str(ad.get("facebook_status", "")).upper() == "ACTIVE"
+    )
+
+
+def _eligible_report_ads(account_id):
+    ads_data = FileStore.load("ads", {})
+    return [
+        ad for ad in ads_data.values()
+        if ad.get("account_id") == account_id and _is_open_ad(ad)
+    ]
+
+
+def _estimate_report_calls(account_id):
+    eligible = _eligible_report_ads(account_id)
+    video_ads = [
+        a for a in eligible if (a.get("creative_type") or "").upper() == "VIDEO"
+    ]
+    # Whisper only fires for videos that don't already have a transcript.
+    needs_transcript = [
+        a for a in video_ads
+        if a.get("video_id") and not a.get("transcript")
+        and a.get("transcript_status") != "no_audio"
+    ]
+    # Claude audit fires for every ad that ends up with text but no audit yet.
+    # That includes videos that WILL get a transcript from this run.
+    needs_analysis = []
+    for a in eligible:
+        already_audited = bool(a.get("copy_analysis"))
+        if already_audited:
+            continue
+        will_have_text = (
+            (a.get("transcript") or a.get("script") or "").strip()
+            or a in needs_transcript
+        )
+        if will_have_text:
+            needs_analysis.append(a)
+
+    whisper_calls = len(needs_transcript)
+    claude_audit_calls = len(needs_analysis)
+    # +1 for the final strategist summary call.
+    claude_summary_calls = 1
+    total_claude = claude_audit_calls + claude_summary_calls
+
+    # Cost model: Whisper $0.006/min (~30s avg = $0.003) + Sonnet
+    # ~$0.005/audit + ~$0.05 for the summary (longer output).
+    est_cost = round(
+        whisper_calls * 0.003
+        + claude_audit_calls * 0.005
+        + claude_summary_calls * 0.05,
+        3,
+    )
+
+    return {
+        "eligible_ads_total": len(eligible),
+        "video_ads": len(video_ads),
+        "whisper_calls": whisper_calls,
+        "claude_audit_calls": claude_audit_calls,
+        "claude_summary_calls": claude_summary_calls,
+        "total_claude_calls": total_claude,
+        "estimated_cost_usd": est_cost,
+    }
+
+
+def _update_account_fields(account_id, fields):
+    with _REPORT_LOCK:
+        accounts = FileStore.load("accounts", {})
+        if account_id not in accounts:
+            return
+        accounts[account_id].update(fields)
+        FileStore.save("accounts", accounts)
+
+
+def _resolve_report_video_url(ad, token):
+    if not ad.get("video_id") or not token:
+        return None
+    media = fetch_meta_video_media(ad["video_id"], token)
+    return (
+        media.get("source")
+        or ("https://www.facebook.com" + media["permalink_url"] if media.get("permalink_url") else None)
+        or f"https://www.facebook.com/watch/?v={ad['video_id']}"
+    )
+
+
+def _build_report_account_context(account_id, account):
+    """Pull last-28d metrics from Meta + merge with our cached transcripts
+    and copy_analyses, then add a country rollup. Feed the result to the
+    strategist."""
+    token = get_account_token(account)
+    meta_account_id = account.get("meta_account_id") or account_id
+    currency = (account.get("meta_currency") or "USD").upper()
+    usd_rate = fx_rate(currency)
+
+    ad_rows = fetch_meta_account_insights(
+        access_token=token,
+        account_id=meta_account_id,
+        breakdowns=None,
+        time_increment=None,
+        date_preset="last_28d",
+        currency=currency,
+        usd_rate=usd_rate,
+        level="ad",
+    )
+
+    country_rows = fetch_meta_account_insights(
+        access_token=token,
+        account_id=meta_account_id,
+        breakdowns=["country"],
+        time_increment=None,
+        date_preset="last_28d",
+        currency=currency,
+        usd_rate=usd_rate,
+        level="account",
+    )
+
+    ads_data = FileStore.load("ads", {})
+    by_external = {}
+    for ad in ads_data.values():
+        if ad.get("account_id") != account_id:
+            continue
+        ext = ad.get("external_id") or ad.get("id", "").replace("fb-", "")
+        if ext:
+            by_external[str(ext)] = ad
+
+    per_ad = []
+    for row in ad_rows:
+        ext = str(row.get("ad_id") or "")
+        matched = by_external.get(ext)
+        if not matched or not _is_open_ad(matched):
+            continue
+        m = insights_mod._row_metrics(row)
+        text = (matched.get("transcript") or matched.get("script") or "").strip()
+        per_ad.append({
+            "ad_id": matched["id"],
+            "ad_name": matched.get("name") or row.get("ad_name", ""),
+            "creative_type": matched.get("creative_type"),
+            "spend": round(m["spend"], 2),
+            "revenue": round(m["revenue"], 2),
+            "roas": m["roas"],
+            "clicks": m["clicks"],
+            "impressions": m["impressions"],
+            "purchases": m["purchases"],
+            "ctr": m["ctr"],
+            "cpa": m["cpa"],
+            "cpm": round(m["spend"] / m["impressions"] * 1000, 2) if m["impressions"] else 0,
+            "cpc": round(m["spend"] / m["clicks"], 2) if m["clicks"] else 0,
+            "text": text[:1500],
+            "copy_analysis": matched.get("copy_analysis"),
+        })
+
+    country_summary = insights_mod.aggregate_country(country_rows)[:15]
+
+    total_spend = sum(a["spend"] for a in per_ad)
+    total_revenue = sum(a["revenue"] for a in per_ad)
+    total_purchases = sum(a["purchases"] for a in per_ad)
+    total_clicks = sum(a["clicks"] for a in per_ad)
+    total_impressions = sum(a["impressions"] for a in per_ad)
+
+    return {
+        "account_name": account.get("name"),
+        "date_range": "last_28d",
+        "totals": {
+            "spend": round(total_spend, 2),
+            "revenue": round(total_revenue, 2),
+            "roas": round(total_revenue / total_spend, 2) if total_spend else 0,
+            "purchases": total_purchases,
+            "clicks": total_clicks,
+            "impressions": total_impressions,
+            "ctr": round(total_clicks / total_impressions * 100, 2) if total_impressions else 0,
+            "cpc": round(total_spend / total_clicks, 2) if total_clicks else 0,
+            "cpm": round(total_spend / total_impressions * 1000, 2) if total_impressions else 0,
+            "cpa": round(total_spend / total_purchases, 2) if total_purchases else 0,
+        },
+        "ads": per_ad,
+        "countries": [
+            {
+                "country": r["country"],
+                "spend": r["spend"],
+                "purchases": r["purchases"],
+                "roas": r["roas"],
+                "ctr": r["ctr"],
+            }
+            for r in country_summary
+        ],
+    }
+
+
+def _run_account_report_job(account_id):
+    try:
+        accounts = FileStore.load("accounts", {})
+        account = accounts.get(account_id)
+        if not account:
+            return
+        token = get_account_token(account)
+
+        # PHASE 1: Transcribe videos that don't yet have a transcript.
+        videos_to_transcribe = [
+            a for a in _eligible_report_ads(account_id)
+            if (a.get("creative_type") or "").upper() == "VIDEO"
+            and a.get("video_id")
+            and not a.get("transcript")
+            and a.get("transcript_status") != "no_audio"
+        ]
+        _update_account_fields(account_id, {
+            "report_progress": {
+                "phase": "transcribing",
+                "done": 0,
+                "total": len(videos_to_transcribe),
+            }
+        })
+        for i, ad in enumerate(videos_to_transcribe):
+            try:
+                video_url = _resolve_report_video_url(ad, token)
+                if video_url:
+                    transcript = transcribe_video(video_url)
+                    _update_ad_fields(ad["id"], {
+                        "transcript": transcript,
+                        "transcript_status": "done" if transcript else "no_audio",
+                        "transcript_error": None,
+                    })
+            except Exception as exc:
+                _update_ad_fields(ad["id"], {
+                    "transcript_status": "failed",
+                    "transcript_error": str(exc)[:300],
+                })
+            _update_account_fields(account_id, {
+                "report_progress": {
+                    "phase": "transcribing",
+                    "done": i + 1,
+                    "total": len(videos_to_transcribe),
+                }
+            })
+
+        # PHASE 2: Claude copywriting audit on each ad that now has text and
+        # no audit cached yet.
+        eligible = _eligible_report_ads(account_id)
+        to_audit = [
+            a for a in eligible
+            if not a.get("copy_analysis")
+            and (a.get("transcript") or a.get("script") or "").strip()
+        ]
+        _update_account_fields(account_id, {
+            "report_progress": {
+                "phase": "auditing",
+                "done": 0,
+                "total": len(to_audit),
+            }
+        })
+        for i, ad in enumerate(to_audit):
+            try:
+                text = (ad.get("transcript") or ad.get("script") or "").strip()
+                if text:
+                    result = analyze_copy(
+                        text,
+                        ad_context={
+                            "name": ad.get("name"),
+                            "campaign_name": ad.get("campaign_name"),
+                            "creative_type": ad.get("creative_type"),
+                            "roas": ad.get("roas"),
+                        },
+                    )
+                    _update_ad_fields(ad["id"], {
+                        "copy_analysis": result,
+                        "copy_analysis_status": "done",
+                        "copy_analysis_error": None,
+                    })
+            except Exception as exc:
+                _update_ad_fields(ad["id"], {
+                    "copy_analysis_status": "failed",
+                    "copy_analysis_error": str(exc)[:300],
+                })
+            _update_account_fields(account_id, {
+                "report_progress": {
+                    "phase": "auditing",
+                    "done": i + 1,
+                    "total": len(to_audit),
+                }
+            })
+
+        # PHASE 3: Build the strategist summary from last-28d metrics + the
+        # cached copy_analyses.
+        _update_account_fields(account_id, {
+            "report_progress": {
+                "phase": "summarizing",
+                "done": 0,
+                "total": 1,
+            }
+        })
+        context = _build_report_account_context(account_id, account)
+        report = build_strategist_report(context)
+
+        _update_account_fields(account_id, {
+            "report_status": "done",
+            "report_completed_at": datetime.utcnow().isoformat(),
+            "report_data": report,
+            "report_progress": {"phase": "done", "done": 1, "total": 1},
+            "report_error": None,
+        })
+    except Exception as exc:
+        _update_account_fields(account_id, {
+            "report_status": "failed",
+            "report_completed_at": datetime.utcnow().isoformat(),
+            "report_error": str(exc)[:500],
+        })
+
+
+@app.route("/accounts/<account_id>/report/estimate", methods=["POST"])
+@login_required
+def report_estimate(account_id):
+    accounts = FileStore.load("accounts", {})
+    if account_id not in accounts:
+        return jsonify(success=False, message="Account not found."), 404
+    return jsonify(success=True, **_estimate_report_calls(account_id))
+
+
+@app.route("/accounts/<account_id>/report/start", methods=["POST"])
+@login_required
+def report_start(account_id):
+    accounts = FileStore.load("accounts", {})
+    account = accounts.get(account_id)
+    if not account:
+        return jsonify(success=False, message="Account not found."), 404
+    if account.get("report_status") == "pending":
+        return jsonify(success=False, message="A report is already running."), 409
+    _update_account_fields(account_id, {
+        "report_status": "pending",
+        "report_started_at": datetime.utcnow().isoformat(),
+        "report_error": None,
+        "report_progress": {"phase": "queued", "done": 0, "total": 0},
+    })
+    _REPORT_EXECUTOR.submit(_run_account_report_job, account_id)
+    return jsonify(success=True, status="pending")
+
+
+@app.route("/accounts/<account_id>/report/status")
+@login_required
+def report_status_endpoint(account_id):
+    accounts = FileStore.load("accounts", {})
+    account = accounts.get(account_id)
+    if not account:
+        return jsonify(success=False, message="Account not found."), 404
+    return jsonify(
+        success=True,
+        status=account.get("report_status", "idle"),
+        progress=account.get("report_progress"),
+        data=account.get("report_data"),
+        error=account.get("report_error"),
+        completed_at=account.get("report_completed_at"),
+    )
+
+
+@app.route("/ads/<ad_id>/transcribe", methods=["POST"])
+@login_required
+def transcribe_ad(ad_id):
+    ads_data = FileStore.load("ads", {})
+    accounts = FileStore.load("accounts", {})
+    ad = ads_data.get(ad_id)
+    if not ad:
+        return jsonify(success=False, message="Ad not found."), 404
+
+    account = accounts.get(ad.get("account_id"), {})
+    video_url = None
+    if ad.get("video_id") and account.get("meta_access_token"):
+        media = fetch_meta_video_media(ad["video_id"], get_account_token(account))
+        # Meta returns `source` only for some uploads. Reels and many newer
+        # creatives expose only `permalink_url` — yt-dlp can still download
+        # those from the public Facebook URL.
+        video_url = media.get("source")
+        if not video_url and media.get("permalink_url"):
+            video_url = "https://www.facebook.com" + media["permalink_url"]
+        if not video_url:
+            video_url = f"https://www.facebook.com/watch/?v={ad['video_id']}"
+
+    if not video_url:
+        return jsonify(
+            success=False,
+            message="No playable video URL available for this ad.",
+        ), 400
+
+    _update_ad_fields(ad_id, {"transcript_status": "pending", "transcript_error": None})
+    _TRANSCRIBE_EXECUTOR.submit(_run_transcription_job, ad_id, video_url)
+    return jsonify(success=True, status="pending")
+
+
+@app.route("/ads/<ad_id>/transcript-status")
+@login_required
+def transcript_status(ad_id):
+    ads_data = FileStore.load("ads", {})
+    ad = ads_data.get(ad_id)
+    if not ad:
+        return jsonify(success=False, message="Ad not found."), 404
+    return jsonify(
+        success=True,
+        status=ad.get("transcript_status"),
+        transcript=ad.get("transcript"),
+        error=ad.get("transcript_error"),
+    )
+
+
 @app.route("/ads/<ad_id>")
 @login_required
 def ad_detail(ad_id):
@@ -412,7 +987,8 @@ def ad_detail(ad_id):
         if not ad.get("thumbnail_url"):
             ad["thumbnail_url"] = video_media.get("picture")
 
-    analysis = analyze_ad_text(ad.get("script", "") or ad.get("name", ""))
+    analysis_source = ad.get("transcript") or ad.get("script", "") or ad.get("name", "")
+    analysis = analyze_ad_text(analysis_source)
 
     recommendations = []
     if analysis["awareness_level"] == "low":
@@ -440,11 +1016,18 @@ def ad_detail(ad_id):
             "Add a few direct benefit keywords to improve search and social relevance."
         )
 
+    copy_analysis = raw_ad.get("copy_analysis")
+    copy_analysis_status = raw_ad.get("copy_analysis_status")
+    copy_analysis_error = raw_ad.get("copy_analysis_error")
+
     return render_template(
         "ad_detail.html",
         ad=ad,
         account=account,
         analysis=analysis,
+        copy_analysis=copy_analysis,
+        copy_analysis_status=copy_analysis_status,
+        copy_analysis_error=copy_analysis_error,
         performance={
             "spend": ad["spend_usd"],
             "revenue": ad["revenue_usd"],
@@ -755,6 +1338,40 @@ def _connected_accounts(accounts, scope_account_id=None):
     }
 
 
+def _fetch_ad_level_rows(accounts_map, date_preset):
+    """Fetch one row per ad for the chosen date range, across all connected
+    accounts in parallel. Used by the editor breakdown so it reflects the
+    selected date filter instead of the frozen sync snapshot.
+    """
+    if not accounts_map:
+        return []
+
+    def run(item):
+        account_id, account = item
+        token = get_account_token(account)
+        meta_account_id = account.get("meta_account_id") or account_id
+        currency = (account.get("meta_currency") or "USD").upper()
+        usd_rate = fx_rate(currency)
+        rows = fetch_meta_account_insights(
+            access_token=token,
+            account_id=meta_account_id,
+            breakdowns=None,
+            time_increment=None,
+            date_preset=date_preset,
+            currency=currency,
+            usd_rate=usd_rate,
+            level="ad",
+        )
+        return rows
+
+    all_rows = []
+    items = list(accounts_map.items())
+    with ThreadPoolExecutor(max_workers=min(8, len(items) or 1)) as ex:
+        for rows in ex.map(run, items):
+            all_rows.extend(rows)
+    return all_rows
+
+
 def _fetch_breakdowns_parallel(accounts_map, date_preset):
     """Run all breakdown fetches for all connected accounts in parallel.
 
@@ -812,14 +1429,40 @@ def _build_analytics_context(scope_account_id=None):
     connected = _connected_accounts(accounts, scope_account_id)
     breakdowns = _fetch_breakdowns_parallel(connected, date_preset)
 
+    # Live period totals come from the timeseries breakdown (no breakdown keys,
+    # one row per day for the chosen date_preset). Summing these gives the real
+    # period totals that respect the date filter — unlike `ads`, which holds a
+    # frozen "today" snapshot from the last Meta sync.
+    period_rows = insights_mod.aggregate_timeseries(breakdowns["timeseries"])
+    period_spend = sum(r["spend"] for r in period_rows)
+    period_revenue = sum(r["revenue"] for r in period_rows)
+    period_clicks = sum(int(r["clicks"]) for r in period_rows)
+    period_impressions = sum(int(r["impressions"]) for r in period_rows)
+    period_purchases = sum(int(r["purchases"]) for r in period_rows)
+    period_has_data = bool(period_rows)
+
     account_rows = insights_mod.account_scorecard(ads, accounts)
     campaign_rows = insights_mod.campaign_leaderboard(ads, accounts)
     creative_rows = insights_mod.creative_leaderboard(ads, accounts)
-    funnel = insights_mod.funnel_metrics(ads)
+    if period_has_data:
+        funnel = {
+            "impressions": period_impressions,
+            "clicks": period_clicks,
+            "purchases": period_purchases,
+            "click_rate": round(period_clicks / period_impressions * 100, 2) if period_impressions else 0,
+            "conversion_rate": round(period_purchases / period_clicks * 100, 2) if period_clicks else 0,
+            "purchase_rate": round(period_purchases / period_impressions * 100, 4) if period_impressions else 0,
+        }
+    else:
+        funnel = insights_mod.funnel_metrics(ads)
     distribution = insights_mod.spend_distribution(ads, accounts)
     status_data = insights_mod.status_mix(ads)
     creative_type_data = insights_mod.creative_type_mix(ads)
-    editor_rows = insights_mod.editor_breakdown(ads)
+    ad_level_rows = _fetch_ad_level_rows(connected, date_preset)
+    if ad_level_rows:
+        editor_rows = insights_mod.editor_breakdown_from_insight_rows(ad_level_rows)
+    else:
+        editor_rows = insights_mod.editor_breakdown(ads)
     outliers = insights_mod.detect_outliers(ads, accounts, account_rows)
 
     country = insights_mod.aggregate_country(breakdowns["country"])
@@ -843,11 +1486,12 @@ def _build_analytics_context(scope_account_id=None):
         "totals": {
             "ad_accounts": len({ad.get("account_id") for ad in ads}),
             "ads": len(ads),
-            "spend": sum(a.get("spend_usd", 0) for a in ads),
-            "revenue": sum(a.get("revenue_usd", 0) for a in ads),
-            "purchases": sum(a.get("purchases", 0) for a in ads),
-            "clicks": sum(int(a.get("clicks", 0) or 0) for a in ads),
-            "impressions": sum(int(a.get("impressions", 0) or 0) for a in ads),
+            "spend": period_spend if period_has_data else sum(a.get("spend_usd", 0) for a in ads),
+            "revenue": period_revenue if period_has_data else sum(a.get("revenue_usd", 0) for a in ads),
+            "purchases": period_purchases if period_has_data else sum(a.get("purchases", 0) for a in ads),
+            "clicks": period_clicks if period_has_data else sum(int(a.get("clicks", 0) or 0) for a in ads),
+            "impressions": period_impressions if period_has_data else sum(int(a.get("impressions", 0) or 0) for a in ads),
+            "is_live": period_has_data,
         },
         "account_rows": account_rows,
         "campaign_rows": campaign_rows,

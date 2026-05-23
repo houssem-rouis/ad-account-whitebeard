@@ -4,7 +4,7 @@ services:
     runtime: python
     plan: starter            # $7/mo, always-on; switch to "free" to test (sleeps after 15 min idle)
     region: oregon            # or "frankfurt" / "singapore" / etc. — pick what's closest to you
-    buildCommand: pip install -r requirements.txt
+    buildCommand: apt-get update && apt-get install -y ffmpeg && pip install -r requirements.txt
     startCommand: gunicorn app:app --workers 2 --threads 4 --timeout 120 --bind 0.0.0.0:$PORT
     healthCheckPath: /login
     autoDeploy: true
@@ -27,3 +27,7 @@ services:
         sync: false           # You'll paste this in the dashboard so it isn't in git
       - key: PYTHON_VERSION
         value: "3.11"
+      - key: OPENAI_API_KEY
+        sync: false           # paste your OpenAI key in the Render dashboard
+      - key: ANTHROPIC_API_KEY
+        sync: false           # paste your Anthropic key in the Render dashboard

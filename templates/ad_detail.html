@@ -47,8 +47,125 @@
       {% endif %}
     </div>
 
+    <div class="card p-4 mb-4" id="copy-audit-card" data-ad-id="{{ ad.id }}" data-status="{{ copy_analysis_status or '' }}">
+      <div class="d-flex align-items-center justify-content-between mb-3">
+        <h5 class="fw-semibold mb-0">Copywriting audit <span class="badge bg-secondary ms-1">Claude Sonnet 4.6</span></h5>
+        <button type="button" class="btn btn-sm btn-outline-primary" id="analyze-copy-btn"
+                {% if copy_analysis_status == 'pending' %}disabled{% endif %}>
+          {% if copy_analysis %}Re-analyze{% else %}Analyze copy{% endif %}
+        </button>
+      </div>
+      <div id="audit-pending" class="alert alert-info py-2 small mb-3"
+           style="display: {% if copy_analysis_status == 'pending' %}block{% else %}none{% endif %};">
+        Auditing copy… this can take 5–20 seconds.
+      </div>
+      <div id="audit-error" class="alert alert-danger py-2 small mb-3"
+           style="display: {% if copy_analysis_status == 'failed' %}block{% else %}none{% endif %};">
+        Audit failed: <span id="audit-error-msg">{{ copy_analysis_error or 'Unknown error.' }}</span>
+      </div>
+      <div id="audit-no-text" class="alert alert-warning py-2 small mb-3"
+           style="display: {% if copy_analysis_status == 'no_text' %}block{% else %}none{% endif %};">
+        No transcript or script available yet. Transcribe the video first.
+      </div>
+      <div id="audit-hint" class="text-muted small mb-0"
+           style="display: {% if not copy_analysis and copy_analysis_status not in ['pending', 'failed', 'no_text'] %}block{% else %}none{% endif %};">
+        Click <em>Analyze copy</em> to run a senior copywriter's audit on the ad text.
+      </div>
+      <div id="audit-content" style="display: {% if copy_analysis %}block{% else %}none{% endif %};">
+        {% if copy_analysis %}
+          {% set a = copy_analysis %}
+          <div class="row g-3 mb-3">
+            <div class="col-md-6">
+              <div class="label">Awareness stage</div>
+              <div class="value">{{ a.awareness_level.stage if a.awareness_level else '—' }}</div>
+              <div class="text-muted small">{{ a.awareness_level.reasoning if a.awareness_level else '' }}</div>
+            </div>
+            <div class="col-md-6">
+              <div class="label">Sophistication stage</div>
+              <div class="value">{{ a.sophistication_level.stage if a.sophistication_level else '—' }}</div>
+              <div class="text-muted small">{{ a.sophistication_level.reasoning if a.sophistication_level else '' }}</div>
+            </div>
+            <div class="col-md-6">
+              <div class="label">Tone</div>
+              <div class="value">{{ a.tone or '—' }}</div>
+            </div>
+            <div class="col-md-6">
+              <div class="label">Style</div>
+              <div class="value">{{ a.style or '—' }}</div>
+            </div>
+            <div class="col-md-12">
+              <div class="label">Angle (core promise)</div>
+              <div class="value">{{ a.angle or '—' }}</div>
+            </div>
+            <div class="col-md-12">
+              <div class="label">Hook</div>
+              <div class="value">"{{ a.hook.opening_line if a.hook else '' }}"</div>
+              <div class="text-muted small">{{ a.hook.type if a.hook else '' }} · {{ a.hook.strength if a.hook else '' }} — {{ a.hook.reasoning if a.hook else '' }}</div>
+            </div>
+          </div>
+          {% if a.frameworks_detected %}
+          <div class="mb-3">
+            <span class="eyebrow">Frameworks detected</span>
+            <div>
+              {% for fw in a.frameworks_detected %}<span class="badge bg-primary me-1">{{ fw }}</span>{% endfor %}
+            </div>
+          </div>
+          {% endif %}
+          {% if a.avatar %}
+          <hr class="divider">
+          <div class="mb-3">
+            <span class="eyebrow">Avatar</span>
+            <p class="mb-2"><strong>Who:</strong> {{ a.avatar.demographic }}</p>
+            <p class="mb-2"><strong>Emotional state:</strong> {{ a.avatar.emotional_state }}</p>
+            <div class="row g-2">
+              <div class="col-md-4">
+                <div class="label small">Pain points</div>
+                <ul class="small mb-0">{% for p in a.avatar.pain_points or [] %}<li>{{ p }}</li>{% endfor %}</ul>
+              </div>
+              <div class="col-md-4">
+                <div class="label small">Desires</div>
+                <ul class="small mb-0">{% for d in a.avatar.desires or [] %}<li>{{ d }}</li>{% endfor %}</ul>
+              </div>
+              <div class="col-md-4">
+                <div class="label small">Objections</div>
+                <ul class="small mb-0">{% for o in a.avatar.objections or [] %}<li>{{ o }}</li>{% endfor %}</ul>
+              </div>
+            </div>
+          </div>
+          {% endif %}
+          <hr class="divider">
+          <div class="row g-3 mb-3">
+            <div class="col-md-6">
+              <span class="eyebrow text-success">Strengths</span>
+              <ul class="small mb-0">{% for s in a.strengths or [] %}<li>{{ s }}</li>{% endfor %}</ul>
+            </div>
+            <div class="col-md-6">
+              <span class="eyebrow text-danger">Weaknesses</span>
+              <ul class="small mb-0">{% for w in a.weaknesses or [] %}<li>{{ w }}</li>{% endfor %}</ul>
+            </div>
+          </div>
+          {% if a.test_suggestions %}
+          <div class="mb-3">
+            <span class="eyebrow">Suggested A/B tests</span>
+            <ol class="small mb-0">{% for t in a.test_suggestions %}<li>{{ t }}</li>{% endfor %}</ol>
+          </div>
+          {% endif %}
+          {% if a.overall_score %}
+          <hr class="divider">
+          <div class="d-flex align-items-baseline gap-3">
+            <div>
+              <div class="label">Overall score</div>
+              <div class="value" style="font-size: 1.6rem;">{{ a.overall_score.value }} / 10</div>
+            </div>
+            <div class="text-muted small">{{ a.overall_score.reasoning }}</div>
+          </div>
+          {% endif %}
+        {% endif %}
+      </div>
+    </div>
+
     <div class="card p-4 mb-4">
-      <h5 class="fw-semibold mb-3">Script analysis</h5>
+      <h5 class="fw-semibold mb-3">Script analysis (heuristic)</h5>
       <div class="row g-3">
         <div class="col-md-6">
           <div class="summary-grid" style="grid-template-columns: 1fr;">
@@ -93,6 +210,35 @@
         <p class="mb-0">{{ analysis.keywords or 'No strong keywords identified.' }}</p>
       </div>
     </div>
+
+    {% if ad.creative_type == 'VIDEO' or ad.video_id %}
+    <div class="card p-4 mb-4" id="transcript-card" data-ad-id="{{ ad.id }}" data-status="{{ ad.transcript_status or '' }}">
+      <div class="d-flex align-items-center justify-content-between mb-3">
+        <h5 class="fw-semibold mb-0">Spoken text (Whisper)</h5>
+        <button type="button" class="btn btn-sm btn-outline-primary" id="transcribe-btn"
+                {% if ad.transcript_status == 'pending' %}disabled{% endif %}>
+          {% if ad.transcript %}Re-transcribe{% else %}Transcribe video{% endif %}
+        </button>
+      </div>
+      <div id="transcript-status-banner" class="alert alert-info py-2 small mb-3"
+           style="display: {% if ad.transcript_status == 'pending' %}block{% else %}none{% endif %};">
+        Transcribing… this can take 10–60 seconds depending on video length.
+      </div>
+      <div id="transcript-error-banner" class="alert alert-danger py-2 small mb-3"
+           style="display: {% if ad.transcript_status == 'failed' %}block{% else %}none{% endif %};">
+        Transcription failed: <span id="transcript-error-msg">{{ ad.transcript_error or 'Unknown error.' }}</span>
+      </div>
+      <div id="transcript-empty-banner" class="alert alert-warning py-2 small mb-3"
+           style="display: {% if ad.transcript_status == 'no_audio' %}block{% else %}none{% endif %};">
+        No speech detected in this video.
+      </div>
+      <div class="script-panel" id="transcript-text" style="display: {% if ad.transcript %}block{% else %}none{% endif %};">{{ ad.transcript or '' }}</div>
+      <p class="text-muted small mb-0" id="transcript-empty-hint"
+         style="display: {% if not ad.transcript and ad.transcript_status not in ['pending', 'failed', 'no_audio'] %}block{% else %}none{% endif %};">
+        Click <em>Transcribe video</em> to extract spoken words and feed them into the analysis above.
+      </p>
+    </div>
+    {% endif %}
 
     <div class="card p-4">
       <h5 class="fw-semibold mb-3">Script</h5>
@@ -162,4 +308,130 @@
     </div>
   </div>
 </div>
+<script>
+(function () {
+  const card = document.getElementById('transcript-card');
+  if (!card) return;
+  const adId = card.dataset.adId;
+  const btn = document.getElementById('transcribe-btn');
+  const pendingBanner = document.getElementById('transcript-status-banner');
+  const errorBanner = document.getElementById('transcript-error-banner');
+  const errorMsg = document.getElementById('transcript-error-msg');
+  const emptyBanner = document.getElementById('transcript-empty-banner');
+  const emptyHint = document.getElementById('transcript-empty-hint');
+  const textEl = document.getElementById('transcript-text');
+  let pollTimer = null;
+
+  function hide(el) { if (el) el.style.display = 'none'; }
+  function show(el, mode) { if (el) el.style.display = mode || 'block'; }
+
+  function renderState(status, transcript, error) {
+    hide(pendingBanner); hide(errorBanner); hide(emptyBanner); hide(emptyHint); hide(textEl);
+    if (status === 'pending') {
+      show(pendingBanner);
+      btn.disabled = true;
+    } else if (status === 'done' && transcript) {
+      textEl.textContent = transcript;
+      show(textEl);
+      btn.disabled = false;
+      btn.textContent = 'Re-transcribe';
+    } else if (status === 'no_audio') {
+      show(emptyBanner);
+      btn.disabled = false;
+    } else if (status === 'failed') {
+      errorMsg.textContent = error || 'Unknown error.';
+      show(errorBanner);
+      btn.disabled = false;
+    } else {
+      show(emptyHint);
+      btn.disabled = false;
+    }
+  }
+
+  function poll() {
+    fetch('/ads/' + adId + '/transcript-status', { credentials: 'same-origin' })
+      .then(r => r.json())
+      .then(data => {
+        if (!data.success) return;
+        renderState(data.status, data.transcript, data.error);
+        if (data.status === 'pending') {
+          pollTimer = setTimeout(poll, 3000);
+        } else if (data.status === 'done') {
+          setTimeout(() => window.location.reload(), 800);
+        }
+      })
+      .catch(() => { pollTimer = setTimeout(poll, 5000); });
+  }
+
+  btn.addEventListener('click', function () {
+    btn.disabled = true;
+    renderState('pending');
+    fetch('/ads/' + adId + '/transcribe', { method: 'POST', credentials: 'same-origin' })
+      .then(r => r.json())
+      .then(data => {
+        if (!data.success) {
+          renderState('failed', null, data.message || 'Could not start transcription.');
+          return;
+        }
+        poll();
+      })
+      .catch(err => renderState('failed', null, String(err)));
+  });
+
+  if (card.dataset.status === 'pending') poll();
+})();
+
+(function () {
+  const card = document.getElementById('copy-audit-card');
+  if (!card) return;
+  const adId = card.dataset.adId;
+  const btn = document.getElementById('analyze-copy-btn');
+  const pendingEl = document.getElementById('audit-pending');
+  const errorEl = document.getElementById('audit-error');
+  const errorMsg = document.getElementById('audit-error-msg');
+  const noTextEl = document.getElementById('audit-no-text');
+  const hintEl = document.getElementById('audit-hint');
+  const contentEl = document.getElementById('audit-content');
+  let pollTimer = null;
+
+  function hide(el) { if (el) el.style.display = 'none'; }
+  function show(el) { if (el) el.style.display = 'block'; }
+
+  function renderState(status, error) {
+    hide(pendingEl); hide(errorEl); hide(noTextEl); hide(hintEl);
+    if (status === 'pending') { show(pendingEl); btn.disabled = true; return; }
+    btn.disabled = false;
+    if (status === 'failed') { errorMsg.textContent = error || 'Unknown error.'; show(errorEl); }
+    else if (status === 'no_text') { show(noTextEl); }
+    else if (status === 'done') { /* content already visible from server-render or reload */ }
+    else { show(hintEl); }
+  }
+
+  function poll() {
+    fetch('/ads/' + adId + '/copy-analysis-status', { credentials: 'same-origin' })
+      .then(r => r.json())
+      .then(data => {
+        if (!data.success) return;
+        renderState(data.status, data.error);
+        if (data.status === 'pending') pollTimer = setTimeout(poll, 3000);
+        else if (data.status === 'done') setTimeout(() => window.location.reload(), 500);
+      })
+      .catch(() => { pollTimer = setTimeout(poll, 5000); });
+  }
+
+  btn.addEventListener('click', function () {
+    btn.disabled = true;
+    renderState('pending');
+    fetch('/ads/' + adId + '/analyze-copy', { method: 'POST', credentials: 'same-origin' })
+      .then(r => r.json())
+      .then(data => {
+        if (!data.success) { renderState('failed', data.message || 'Could not start audit.'); return; }
+        poll();
+      })
+      .catch(err => renderState('failed', String(err)));
+  });
+
+  if (card.dataset.status === 'pending') poll();
+})();
+</script>
 {% endblock %}

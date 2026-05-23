@@ -20,6 +20,24 @@
   </div>
 </div>
 
+<ul class="nav nav-pills mb-4 flex-wrap gap-2 analytics-tabs">
+  <li class="nav-item">
+    <a class="nav-link {% if not scope_account %}active{% endif %}"
+       href="{{ url_for('analytics', range=date_preset) }}">
+      All accounts <span class="badge bg-secondary ms-1">{{ accounts|length }}</span>
+    </a>
+  </li>
+  {% for aid, acc in accounts.items() %}
+  <li class="nav-item">
+    <a class="nav-link {% if scope_account and scope_account.id == aid %}active{% endif %}"
+       href="{{ url_for('account_analytics', account_id=aid, range=date_preset) }}">
+      {{ acc.name }}
+      {% if not acc.get('meta_connected') %}<span class="badge bg-warning text-dark ms-1" title="Not connected to Meta">offline</span>{% endif %}
+    </a>
+  </li>
+  {% endfor %}
+</ul>
+
 <div class="card p-3 mb-4">
   <form method="get" class="d-flex flex-wrap align-items-center gap-3">
     <div class="d-flex align-items-center gap-2">
@@ -30,7 +48,7 @@
         {% endfor %}
       </select>
     </div>
-    <span class="text-faint small">Breakdown data is fetched live from Meta and cached for 10 minutes.</span>
+    <span class="text-faint small">Top metrics, funnel, and all breakdowns reflect the selected range (live from Meta, cached 10 min). Leaderboards below reflect the latest sync snapshot.</span>
   </form>
 </div>
 
@@ -89,54 +107,10 @@
 </div>
 
 <!-- ============================================================ -->
-<!-- ACCOUNT SCORECARD + OUTLIERS                                  -->
+<!-- OUTLIERS                                                      -->
 <!-- ============================================================ -->
 <div class="row g-4 mb-4">
-  <div class="col-lg-7">
-    <div class="card p-4 h-100">
-      <h5 class="fw-semibold mb-3">Account scorecard</h5>
-      {% if account_rows %}
-      <canvas id="chartAccounts" height="110"
-              data-labels='{{ account_rows | map(attribute="name") | list | tojson | safe }}'
-              data-spend='{{ account_rows | map(attribute="spend") | list | tojson | safe }}'
-              data-revenue='{{ account_rows | map(attribute="revenue") | list | tojson | safe }}'
-              data-roas='{{ account_rows | map(attribute="roas") | list | tojson | safe }}'></canvas>
-      <div class="table-responsive mt-3">
-        <table class="table align-middle mb-0">
-          <thead>
-            <tr>
-              <th>Account</th>
-              <th class="text-end">Spend</th>
-              <th class="text-end d-none d-sm-table-cell">Revenue</th>
-              <th class="text-end">ROAS</th>
-              <th class="text-end d-none d-sm-table-cell">Results</th>
-              <th class="text-end d-none d-md-table-cell">CPA</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for row in account_rows %}
-            <tr>
-              <td><a class="fw-semibold text-decoration-none" href="{{ url_for('account_analytics', account_id=row.account_id) }}">{{ row.name }}</a></td>
-              <td class="text-end money" data-usd="{{ row.spend }}">${{ '%.2f' | format(row.spend) }}</td>
-              <td class="text-end money d-none d-sm-table-cell" data-usd="{{ row.revenue }}">${{ '%.2f' | format(row.revenue) }}</td>
-              <td class="text-end fw-semibold {% if row.roas >= 2 %}text-success{% elif row.roas < 1 and row.spend > 0 %}text-danger{% endif %}">{{ '%.2f' | format(row.roas) }}x</td>
-              <td class="text-end d-none d-sm-table-cell">{{ row.purchases }}</td>
-              <td class="text-end money d-none d-md-table-cell" data-usd="{{ row.cpa }}">${{ '%.2f' | format(row.cpa) }}</td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-      {% else %}
-      <div class="empty-state mb-0">
-        <strong>No data yet</strong>
-        Sync at least one account to populate the scorecard.
-      </div>
-      {% endif %}
-    </div>
-  </div>
-
-  <div class="col-lg-5">
+  <div class="col-12">
     <div class="card p-4 h-100">
       <h5 class="fw-semibold mb-3">Auto-flagged insights</h5>
       {% if outliers %}
@@ -567,5 +541,422 @@
   {% endif %}
 </div>
 
+{% if scope_account %}
+<!-- ============================================================ -->
+<!-- AI STRATEGIST REPORT (account-scoped, last 28 days, fixed)    -->
+<!-- ============================================================ -->
+<div class="card p-4 mb-4" id="strategist-card"
+     data-account-id="{{ scope_account.id }}"
+     data-status="{{ scope_account.report_status or 'idle' }}">
+  <div class="d-flex flex-wrap align-items-center justify-content-between mb-2 gap-2">
+    <div>
+      <h5 class="fw-semibold mb-1">AI strategist report
+        <span class="badge bg-secondary ms-1">Last 28 days</span>
+        <span class="badge bg-secondary ms-1">Open ads only</span>
+      </h5>
+      <p class="text-muted small mb-0">Transcribes every open video, audits every ad's copy with Claude, then produces a Head-of-Growth strategist summary with ranking, country & awareness insights, and concrete next actions. Not affected by the date range filter above.</p>
+    </div>
+    <button id="strategist-btn" class="btn btn-primary"
+            {% if scope_account.report_status == 'pending' %}disabled{% endif %}>
+      {% if scope_account.report_data %}Re-run report{% else %}Generate strategist report{% endif %}
+    </button>
+  </div>
+
+  {% if scope_account.report_completed_at %}
+  <p class="text-faint small mb-3">Last run: <span id="strategist-completed-at">{{ scope_account.report_completed_at }}</span></p>
+  {% endif %}
+
+  <!-- IDLE: nothing run yet -->
+  <div id="strategist-idle" class="empty-state mb-0"
+       style="display: {% if scope_account.report_status in ['idle', None, ''] and not scope_account.report_data %}block{% else %}none{% endif %};">
+    <strong>Data not available</strong>
+    Click <em>Generate strategist report</em> to run the full pipeline.
+  </div>
+
+  <!-- CONFIRM: estimate counts before launch -->
+  <div id="strategist-confirm" class="alert alert-info mb-0" style="display:none;">
+    <div class="mb-2"><strong>Estimated API usage</strong></div>
+    <ul class="mb-2 small">
+      <li><strong id="est-whisper">0</strong> OpenAI Whisper calls (video transcription)</li>
+      <li><strong id="est-claude-audit">0</strong> Anthropic Claude calls (per-ad copywriting audit)</li>
+      <li><strong>1</strong> Anthropic Claude call (strategist summary)</li>
+      <li class="text-faint">Eligible open ads: <span id="est-total">0</span> · estimated cost ~$<span id="est-cost">0</span></li>
+    </ul>
+    <div class="d-flex gap-2">
+      <button id="strategist-confirm-btn" class="btn btn-sm btn-primary">Confirm & start</button>
+      <button id="strategist-cancel-btn" class="btn btn-sm btn-outline-secondary">Cancel</button>
+    </div>
+  </div>
+
+  <!-- PENDING: progress -->
+  <div id="strategist-pending" class="alert alert-info mb-0" style="display: {% if scope_account.report_status == 'pending' %}block{% else %}none{% endif %};">
+    <div class="d-flex align-items-center gap-2">
+      <div class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></div>
+      <span id="strategist-phase-label">Loading…</span>
+    </div>
+    <div class="progress mt-2" style="height: 6px;">
+      <div id="strategist-progress-bar" class="progress-bar" role="progressbar" style="width: 0%;"></div>
+    </div>
+  </div>
+
+  <!-- FAILED -->
+  <div id="strategist-error" class="alert alert-danger mb-0" style="display: {% if scope_account.report_status == 'failed' %}block{% else %}none{% endif %};">
+    Strategist report failed: <span id="strategist-error-msg">{{ scope_account.report_error or 'Unknown error.' }}</span>
+  </div>
+
+  <!-- DONE -->
+  <div id="strategist-done" style="display: {% if scope_account.report_data %}block{% else %}none{% endif %};">
+    {% set r = scope_account.report_data %}
+    {% if r %}
+    <div class="alert alert-success mb-3">
+      <h6 class="fw-semibold mb-1">Executive summary</h6>
+      <p class="mb-0">{{ r.executive_summary }}</p>
+    </div>
+
+    {% if r.headline_takeaways %}
+    <div class="mb-4">
+      <h6 class="fw-semibold mb-2">Headline takeaways</h6>
+      <ul class="mb-0 small">
+        {% for t in r.headline_takeaways %}<li>{{ t }}</li>{% endfor %}
+      </ul>
+    </div>
+    {% endif %}
+
+    {% if r.categories %}
+    <div class="row g-3 mb-4">
+      {% for key, cat in r.categories.items() %}
+      <div class="col-sm-6 col-lg-3">
+        <div class="card metric-card h-100">
+          <span class="label">{{ key.replace('_',' ') | title }}</span>
+          <span class="value">{{ cat.count }}</span>
+          <span class="hint">{{ '%.0f' | format(cat.spend_share_pct or 0) }}% of spend · {{ cat.criteria }}</span>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if r.wasted_spend %}
+    <div class="alert alert-warning mb-4">
+      <strong>Wasted spend: <span class="money" data-usd="{{ r.wasted_spend.amount_usd }}">${{ '%.2f' | format(r.wasted_spend.amount_usd or 0) }}</span></strong>
+      ({{ '%.0f' | format(r.wasted_spend.pct_of_total or 0) }}% of total) — {{ r.wasted_spend.explanation }}
+    </div>
+    {% endif %}
+
+    <!-- CHARTS -->
+    <div class="row g-4 mb-4">
+      {% if r.chart_data and r.chart_data.spend_vs_roas %}
+      <div class="col-lg-12">
+        <div class="card p-3 h-100">
+          <h6 class="fw-semibold mb-2">Spend vs ROAS (per ad)</h6>
+          <canvas id="chartReportSpendRoas" height="120"
+                  data-points='{{ r.chart_data.spend_vs_roas | tojson | safe }}'></canvas>
+        </div>
+      </div>
+      {% endif %}
+      {% if r.chart_data and r.chart_data.awareness_performance %}
+      <div class="col-lg-6">
+        <div class="card p-3 h-100">
+          <h6 class="fw-semibold mb-2">Awareness-stage performance</h6>
+          <canvas id="chartReportAwareness" height="160"
+                  data-rows='{{ r.chart_data.awareness_performance | tojson | safe }}'></canvas>
+        </div>
+      </div>
+      {% endif %}
+      {% if r.chart_data and r.chart_data.country_purchases %}
+      <div class="col-lg-6">
+        <div class="card p-3 h-100">
+          <h6 class="fw-semibold mb-2">Country performance</h6>
+          <canvas id="chartReportCountry" height="160"
+                  data-rows='{{ r.chart_data.country_purchases | tojson | safe }}'></canvas>
+        </div>
+      </div>
+      {% endif %}
+    </div>
+
+    <!-- WINNERS / LOSERS -->
+    <div class="row g-4 mb-4">
+      <div class="col-lg-6">
+        <div class="card p-3 h-100">
+          <h6 class="fw-semibold mb-2 text-success">Winners</h6>
+          {% for w in r.winners or [] %}
+          <div class="mb-3 pb-3 {% if not loop.last %}border-bottom{% endif %}">
+            <a class="fw-semibold text-decoration-none" href="{{ url_for('ad_detail', ad_id=w.ad_id) }}">{{ w.ad_name }}</a>
+            <div class="text-faint small mb-1">Spend ${{ '%.2f' | format(w.spend or 0) }} · ROAS {{ '%.2f' | format(w.roas or 0) }}x · {{ w.purchases }} purchases · CTR {{ '%.2f' | format(w.ctr or 0) }}%</div>
+            <div class="small mb-1"><strong>Why:</strong> {{ w.why_winning }}</div>
+            <div class="small"><strong>Action:</strong> {{ w.scale_recommendation }}</div>
+          </div>
+          {% else %}
+          <p class="text-muted small mb-0">No winners identified for this period.</p>
+          {% endfor %}
+        </div>
+      </div>
+      <div class="col-lg-6">
+        <div class="card p-3 h-100">
+          <h6 class="fw-semibold mb-2 text-danger">Losers / money drains</h6>
+          {% for l in r.losers or [] %}
+          <div class="mb-3 pb-3 {% if not loop.last %}border-bottom{% endif %}">
+            <a class="fw-semibold text-decoration-none" href="{{ url_for('ad_detail', ad_id=l.ad_id) }}">{{ l.ad_name }}</a>
+            <div class="text-faint small mb-1">Spend ${{ '%.2f' | format(l.spend or 0) }} · ROAS {{ '%.2f' | format(l.roas or 0) }}x · {{ l.purchases }} purchases · CTR {{ '%.2f' | format(l.ctr or 0) }}%</div>
+            <div class="small mb-1"><strong>Why:</strong> {{ l.why_losing }}</div>
+            <div class="small"><strong>Action:</strong> <span class="badge bg-danger">{{ l.action }}</span></div>
+          </div>
+          {% else %}
+          <p class="text-muted small mb-0">No losers identified.</p>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+
+    <!-- PATTERNS BY AWARENESS -->
+    {% if r.patterns_by_awareness %}
+    <div class="card p-3 mb-4">
+      <h6 class="fw-semibold mb-2">Awareness-stage patterns</h6>
+      <div class="table-responsive">
+        <table class="table table-sm align-middle mb-0">
+          <thead><tr><th>Stage</th><th class="text-end">Ads</th><th class="text-end">Spend</th><th class="text-end">Purchases</th><th class="text-end">ROAS</th><th class="text-end">CTR</th><th>Insight</th></tr></thead>
+          <tbody>
+            {% for p in r.patterns_by_awareness %}
+            <tr>
+              <td><span class="badge bg-primary">{{ p.stage }}</span></td>
+              <td class="text-end">{{ p.ads_count }}</td>
+              <td class="text-end money" data-usd="{{ p.total_spend }}">${{ '%.2f' | format(p.total_spend or 0) }}</td>
+              <td class="text-end">{{ p.total_purchases }}</td>
+              <td class="text-end">{{ '%.2f' | format(p.roas or 0) }}x</td>
+              <td class="text-end">{{ '%.2f' | format(p.ctr or 0) }}%</td>
+              <td class="small">{{ p.insight }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- PATTERNS BY COUNTRY -->
+    {% if r.patterns_by_country %}
+    <div class="card p-3 mb-4">
+      <h6 class="fw-semibold mb-2">Country patterns</h6>
+      <div class="table-responsive">
+        <table class="table table-sm align-middle mb-0">
+          <thead><tr><th>Country</th><th class="text-end">Spend</th><th class="text-end">Purchases</th><th class="text-end">ROAS</th><th class="text-end">CTR</th><th>Insight</th></tr></thead>
+          <tbody>
+            {% for p in r.patterns_by_country %}
+            <tr>
+              <td>{{ p.country }}</td>
+              <td class="text-end money" data-usd="{{ p.spend }}">${{ '%.2f' | format(p.spend or 0) }}</td>
+              <td class="text-end">{{ p.purchases }}</td>
+              <td class="text-end">{{ '%.2f' | format(p.roas or 0) }}x</td>
+              <td class="text-end">{{ '%.2f' | format(p.ctr or 0) }}%</td>
+              <td class="small">{{ p.insight }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- HOOK PATTERNS + AVATAR -->
+    {% if r.hook_patterns or r.avatar_alignment %}
+    <div class="row g-4 mb-4">
+      {% if r.hook_patterns %}
+      <div class="col-lg-7">
+        <div class="card p-3 h-100">
+          <h6 class="fw-semibold mb-2">Hook patterns</h6>
+          <div class="mb-2"><span class="text-success small fw-semibold">Winning hook types:</span>
+            {% for h in r.hook_patterns.winning_hook_types or [] %}<span class="badge bg-success me-1">{{ h }}</span>{% endfor %}
+          </div>
+          <div class="mb-3"><span class="text-danger small fw-semibold">Losing hook types:</span>
+            {% for h in r.hook_patterns.losing_hook_types or [] %}<span class="badge bg-danger me-1">{{ h }}</span>{% endfor %}
+          </div>
+          {% if r.hook_patterns.winning_examples %}
+          <div class="small mb-2"><strong>Winning examples:</strong>
+            <ul class="mb-0">{% for ex in r.hook_patterns.winning_examples %}<li>{{ ex }}</li>{% endfor %}</ul>
+          </div>
+          {% endif %}
+          {% if r.hook_patterns.losing_examples %}
+          <div class="small"><strong>Losing examples:</strong>
+            <ul class="mb-0">{% for ex in r.hook_patterns.losing_examples %}<li>{{ ex }}</li>{% endfor %}</ul>
+          </div>
+          {% endif %}
+        </div>
+      </div>
+      {% endif %}
+      {% if r.avatar_alignment %}
+      <div class="col-lg-5">
+        <div class="card p-3 h-100">
+          <h6 class="fw-semibold mb-2">Avatar alignment</h6>
+          <p class="small mb-0">{{ r.avatar_alignment }}</p>
+        </div>
+      </div>
+      {% endif %}
+    </div>
+    {% endif %}
+
+    <!-- RECOMMENDATIONS + NEXT ACTIONS -->
+    <div class="row g-4">
+      {% if r.creative_recommendations %}
+      <div class="col-lg-6">
+        <div class="card p-3 h-100">
+          <h6 class="fw-semibold mb-2">Creative recommendations</h6>
+          <ol class="small mb-0">
+            {% for rec in r.creative_recommendations %}<li class="mb-2">{{ rec }}</li>{% endfor %}
+          </ol>
+        </div>
+      </div>
+      {% endif %}
+      {% if r.next_actions %}
+      <div class="col-lg-6">
+        <div class="card p-3 h-100">
+          <h6 class="fw-semibold mb-2">Next actions (this week)</h6>
+          <ol class="small mb-0">
+            {% for a in r.next_actions %}<li class="mb-2">{{ a }}</li>{% endfor %}
+          </ol>
+        </div>
+      </div>
+      {% endif %}
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+
 <script src="{{ url_for('static', filename='analytics.js') }}"></script>
+<script>
+(function () {
+  const card = document.getElementById('strategist-card');
+  if (!card) return;
+  const accountId = card.dataset.accountId;
+  const btn = document.getElementById('strategist-btn');
+  const idle = document.getElementById('strategist-idle');
+  const confirmEl = document.getElementById('strategist-confirm');
+  const pending = document.getElementById('strategist-pending');
+  const error = document.getElementById('strategist-error');
+  const errorMsg = document.getElementById('strategist-error-msg');
+  const done = document.getElementById('strategist-done');
+  const phaseLabel = document.getElementById('strategist-phase-label');
+  const progressBar = document.getElementById('strategist-progress-bar');
+  let pollTimer = null;
+
+  function hide(el) { if (el) el.style.display = 'none'; }
+  function show(el) { if (el) el.style.display = 'block'; }
+
+  function setBtnLoading(loading) {
+    if (loading) {
+      btn.disabled = true;
+      btn.dataset.originalText = btn.dataset.originalText || btn.innerHTML;
+      btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Running…';
+    } else {
+      btn.disabled = false;
+      if (btn.dataset.originalText) btn.innerHTML = btn.dataset.originalText;
+    }
+  }
+
+  function renderPhase(progress) {
+    if (!progress) { phaseLabel.textContent = 'Loading…'; progressBar.style.width = '0%'; return; }
+    const labels = {
+      queued: 'Queued…',
+      transcribing: `Step 1/3 · Transcribing videos (${progress.done}/${progress.total})`,
+      auditing: `Step 2/3 · Auditing ad copy (${progress.done}/${progress.total})`,
+      summarizing: 'Step 3/3 · Building strategist summary…',
+      done: 'Done.',
+    };
+    phaseLabel.textContent = labels[progress.phase] || progress.phase;
+    const phaseWeight = { queued: 0, transcribing: 0.4, auditing: 0.4, summarizing: 0.2, done: 0 };
+    const phaseOffset = { queued: 0, transcribing: 0, auditing: 0.4, summarizing: 0.8, done: 1 };
+    const localPct = progress.total ? (progress.done / progress.total) : 0;
+    const pct = Math.min(100, Math.round((phaseOffset[progress.phase] + (phaseWeight[progress.phase] || 0) * localPct) * 100));
+    progressBar.style.width = pct + '%';
+  }
+
+  function poll() {
+    fetch(`/accounts/${accountId}/report/status`, { credentials: 'same-origin' })
+      .then(r => r.json())
+      .then(data => {
+        if (!data.success) return;
+        if (data.status === 'pending') {
+          hide(idle); hide(confirmEl); hide(error); show(pending);
+          renderPhase(data.progress);
+          setBtnLoading(true);
+          pollTimer = setTimeout(poll, 2500);
+        } else if (data.status === 'done') {
+          setBtnLoading(false);
+          setTimeout(() => window.location.reload(), 500);
+        } else if (data.status === 'failed') {
+          hide(pending); hide(confirmEl); hide(idle); show(error);
+          if (errorMsg) errorMsg.textContent = data.error || 'Unknown error.';
+          setBtnLoading(false);
+        }
+      })
+      .catch(() => { pollTimer = setTimeout(poll, 5000); });
+  }
+
+  btn.addEventListener('click', function () {
+    // If a previous report exists, the click goes straight into "re-confirm"
+    // flow rather than wiping the visible report.
+    btn.disabled = true;
+    fetch(`/accounts/${accountId}/report/estimate`, {
+      method: 'POST',
+      credentials: 'same-origin',
+    })
+      .then(r => r.json())
+      .then(data => {
+        btn.disabled = false;
+        if (!data.success) {
+          show(error);
+          if (errorMsg) errorMsg.textContent = data.message || 'Could not estimate.';
+          return;
+        }
+        document.getElementById('est-whisper').textContent = data.whisper_calls;
+        document.getElementById('est-claude-audit').textContent = data.claude_audit_calls;
+        document.getElementById('est-total').textContent = data.eligible_ads_total;
+        document.getElementById('est-cost').textContent = data.estimated_cost_usd;
+        hide(idle); hide(error); hide(pending);
+        show(confirmEl);
+      })
+      .catch(err => {
+        btn.disabled = false;
+        show(error);
+        if (errorMsg) errorMsg.textContent = String(err);
+      });
+  });
+
+  const confirmBtn = document.getElementById('strategist-confirm-btn');
+  const cancelBtn = document.getElementById('strategist-cancel-btn');
+  if (confirmBtn) confirmBtn.addEventListener('click', function () {
+    hide(confirmEl);
+    show(pending);
+    setBtnLoading(true);
+    fetch(`/accounts/${accountId}/report/start`, {
+      method: 'POST',
+      credentials: 'same-origin',
+    })
+      .then(r => r.json())
+      .then(data => {
+        if (!data.success) {
+          hide(pending);
+          show(error);
+          if (errorMsg) errorMsg.textContent = data.message || 'Could not start.';
+          setBtnLoading(false);
+          return;
+        }
+        poll();
+      });
+  });
+  if (cancelBtn) cancelBtn.addEventListener('click', function () {
+    hide(confirmEl);
+    if (card.dataset.status === 'done' || done.style.display === 'block') {
+      // keep showing the existing report
+    } else {
+      show(idle);
+    }
+  });
+
+  if (card.dataset.status === 'pending') {
+    setBtnLoading(true);
+    poll();
+  }
+})();
+</script>
 {% endblock %}
