@@ -139,14 +139,11 @@ h1, h2, h3, h4, h5, h6 {
 .app-brand:hover { color: var(--color-primary); }
 
 .app-brand-mark {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px; height: 32px;
-  border-radius: 9px;
-  background: linear-gradient(135deg, var(--color-primary), #7c3aed);
-  color: #fff;
-  font-weight: 700;
+  display: inline-block;
+  width: 36px;
+  height: 36px;
+  object-fit: contain;
+  flex-shrink: 0;
 }
 
 .app-nav-link {
