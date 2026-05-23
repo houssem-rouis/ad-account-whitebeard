@@ -20,6 +20,8 @@
         <tr>
           <th class="ps-4">Username</th>
           <th>Role</th>
+          <th>Permissions</th>
+          <th>Ad-account access</th>
           <th class="text-end pe-4">Actions</th>
         </tr>
       </thead>
@@ -34,14 +36,31 @@
               <span class="status-pill">Member</span>
             {% endif %}
           </td>
+          <td class="small">
+            {% if user.is_admin %}
+              <span class="badge bg-primary">All</span>
+            {% else %}
+              {% if user.can_launch_analysis %}<span class="badge bg-success me-1">Launch analysis</span>{% endif %}
+              {% if user.can_view_tokens %}<span class="badge bg-info me-1">View tokens</span>{% endif %}
+              {% if not user.can_launch_analysis and not user.can_view_tokens %}<span class="text-faint">Read-only</span>{% endif %}
+            {% endif %}
+          </td>
+          <td class="small text-muted">
+            {% if user.is_admin %}
+              <em>All accounts</em>
+            {% elif user.allowed_account_ids %}
+              {{ user.allowed_account_ids | length }} account{{ '' if user.allowed_account_ids|length == 1 else 's' }}
+            {% else %}
+              <span class="text-faint">None</span>
+            {% endif %}
+          </td>
           <td class="text-end pe-4">
+            <a class="btn btn-sm btn-outline-primary me-1" href="{{ url_for('admin_edit_user', user_id=user.id) }}">Edit</a>
             {% if user.id|string != current_user.id|string %}
             <form method="post" action="{{ url_for('admin_delete_user', user_id=user.id) }}" class="d-inline"
                   onsubmit="return confirm('Delete user {{ user.username }}?');">
               <button class="btn btn-sm btn-outline-danger" type="submit">Delete</button>
             </form>
-            {% else %}
-            <span class="text-faint small">You</span>
             {% endif %}
           </td>
         </tr>

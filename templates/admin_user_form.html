@@ -1,11 +1,15 @@
 {% extends 'base.html' %}
-{% block title %}New user · Whitebeard Ad Studio{% endblock %}
+{% set is_edit = mode == 'edit' %}
+{% block title %}{% if is_edit %}Edit{% else %}New{% endif %} user · Whitebeard Ad Studio{% endblock %}
 {% block content %}
 <div class="page-header">
   <div>
     <p class="eyebrow mb-2">Administration</p>
-    <h1>Create user</h1>
-    <p class="text-muted mb-0">Add a teammate and decide whether they should have administrator privileges.</p>
+    <h1>{% if is_edit %}Edit user{% else %}Create user{% endif %}</h1>
+    <p class="text-muted mb-0">
+      {% if is_edit %}Update permissions and ad-account access. Leave password blank to keep it unchanged.
+      {% else %}Add a teammate and grant the specific permissions and accounts they need.{% endif %}
+    </p>
   </div>
   <div class="page-header-actions">
     <a class="btn btn-outline-secondary" href="{{ url_for('admin_users') }}">Cancel</a>
@@ -13,23 +17,83 @@
 </div>
 
 <div class="row justify-content-center">
-  <div class="col-lg-7">
+  <div class="col-lg-8">
     <div class="card p-4">
-      <form method="post" class="d-grid gap-3">
+      <form method="post" class="d-grid gap-4">
         <div>
           <label class="form-label" for="username">Username</label>
-          <input id="username" type="text" name="username" class="form-control" autocomplete="off" required autofocus>
+          <input id="username" type="text" name="username" class="form-control"
+                 value="{{ user_data.username if user_data else '' }}"
+                 autocomplete="off"
+                 {% if not is_edit %}required autofocus{% endif %}>
         </div>
         <div>
-          <label class="form-label" for="password">Password</label>
-          <input id="password" type="password" name="password" class="form-control" autocomplete="new-password" required>
-          <div class="form-text">Pick something long. Users can be created with admin rights below.</div>
+          <label class="form-label" for="password">Password{% if is_edit %} <span class="text-faint small">(leave blank to keep)</span>{% endif %}</label>
+          <input id="password" type="password" name="password" class="form-control"
+                 autocomplete="new-password"
+                 {% if not is_edit %}required{% endif %}>
         </div>
-        <div class="form-check">
-          <input id="is_admin" type="checkbox" name="is_admin" class="form-check-input">
-          <label for="is_admin" class="form-check-label">Grant administrator privileges</label>
+
+        <hr class="divider mb-0">
+
+        <div>
+          <div class="eyebrow mb-2">Permissions</div>
+          <div class="form-check mb-2">
+            <input id="is_admin" type="checkbox" name="is_admin" class="form-check-input"
+                   {% if user_data and user_data.is_admin %}checked{% endif %}
+                   {% if is_edit and user_data and user_data.id|string == current_user.id|string %}disabled{% endif %}>
+            <label for="is_admin" class="form-check-label">
+              <strong>Administrator</strong>
+              <span class="text-faint small d-block">Full access. Can manage users and all ad accounts. Implicitly has every other permission below.</span>
+            </label>
+          </div>
+          <div class="form-check mb-2">
+            <input id="can_launch_analysis" type="checkbox" name="can_launch_analysis" class="form-check-input"
+                   {% if user_data and user_data.can_launch_analysis %}checked{% endif %}>
+            <label for="can_launch_analysis" class="form-check-label">
+              <strong>Can launch analysis</strong>
+              <span class="text-faint small d-block">Allows running transcription, copy audits, and the strategist report — these calls cost OpenAI / Anthropic tokens.</span>
+            </label>
+          </div>
+          <div class="form-check mb-2">
+            <input id="can_view_tokens" type="checkbox" name="can_view_tokens" class="form-check-input"
+                   {% if user_data and user_data.can_view_tokens %}checked{% endif %}>
+            <label for="can_view_tokens" class="form-check-label">
+              <strong>Can view & edit Meta access tokens</strong>
+              <span class="text-faint small d-block">Required to connect or rotate the Meta credentials on an ad account.</span>
+            </label>
+          </div>
         </div>
-        <button type="submit" class="btn btn-primary">Create user</button>
+
+        <hr class="divider mb-0">
+
+        <div>
+          <div class="eyebrow mb-2">Ad-account access</div>
+          {% if accounts %}
+          <p class="text-faint small mb-2">Tick the ad accounts this user is allowed to see. Admins always see all accounts regardless of this list.</p>
+          <div class="row g-2">
+            {% for aid, acc in accounts.items() %}
+            <div class="col-sm-6">
+              <div class="form-check">
+                <input id="account_{{ aid }}" type="checkbox" name="allowed_account_ids" value="{{ aid }}"
+                       class="form-check-input"
+                       {% if user_data and aid in (user_data.allowed_account_ids or []) %}checked{% endif %}>
+                <label for="account_{{ aid }}" class="form-check-label">{{ acc.name }}
+                  {% if acc.meta_connected %}<span class="badge bg-secondary ms-1">Connected</span>{% endif %}
+                </label>
+              </div>
+            </div>
+            {% endfor %}
+          </div>
+          {% else %}
+          <p class="text-muted small mb-0">No ad accounts yet. Create one on the Ad accounts page first.</p>
+          {% endif %}
+        </div>
+
+        <div class="d-flex gap-2">
+          <button type="submit" class="btn btn-primary">{% if is_edit %}Save changes{% else %}Create user{% endif %}</button>
+          <a class="btn btn-outline-secondary" href="{{ url_for('admin_users') }}">Cancel</a>
+        </div>
       </form>
     </div>
   </div>

@@ -556,10 +556,14 @@
       </h5>
       <p class="text-muted small mb-0">Transcribes every open video, audits every ad's copy with Claude, then produces a Head-of-Growth strategist summary with ranking, country & awareness insights, and concrete next actions. Not affected by the date range filter above.</p>
     </div>
+    {% if user_can_launch_analysis %}
     <button id="strategist-btn" class="btn btn-primary"
             {% if scope_account.report_status == 'pending' %}disabled{% endif %}>
       {% if scope_account.report_data %}Re-run report{% else %}Generate strategist report{% endif %}
     </button>
+    {% else %}
+    <span class="text-faint small">Read-only access — ask an admin to enable analysis launches for you.</span>
+    {% endif %}
   </div>
 
   {% if scope_account.report_completed_at %}

@@ -19,9 +19,15 @@
       <form method="post" class="d-grid gap-3">
         <div>
           <label class="form-label" for="access_token">Meta access token</label>
+          {% if user_can_view_tokens %}
           <input id="access_token" type="text" name="access_token" class="form-control"
                  value="{{ form_token or '' }}" autocomplete="off" required>
           <div class="form-text">Long-lived token from a Meta app or system user with <code>ads_read</code> permission.</div>
+          {% else %}
+          <input id="access_token" type="password" name="access_token" class="form-control"
+                 value="{{ form_token or '' }}" autocomplete="off" required readonly>
+          <div class="form-text text-muted">Token hidden — ask an admin to grant token-view permission to edit.</div>
+          {% endif %}
         </div>
         <div>
           <label class="form-label" for="ad_account_id">Ad account ID</label>

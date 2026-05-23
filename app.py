@@ -126,42 +126,101 @@ def build_meta_ad_record(account_id, ad, existing=None):
 
 # User model
 class User(UserMixin):
-    def __init__(self, id, username, password_hash, is_admin=False):
+    def __init__(self, id, username, password_hash, is_admin=False,
+                 can_launch_analysis=False, can_view_tokens=False,
+                 allowed_account_ids=None):
         self.id = id
         self.username = username
         self.password_hash = password_hash
         self.is_admin = is_admin
+        # Permissions. Admins implicitly have all three regardless of the
+        # stored flag, so a misconfiguration never locks the owner out.
+        self.can_launch_analysis = bool(can_launch_analysis) or bool(is_admin)
+        self.can_view_tokens = bool(can_view_tokens) or bool(is_admin)
+        # Empty list = no accounts (for non-admins). Admins see everything
+        # regardless of this list. `None`/missing is treated as empty.
+        self.allowed_account_ids = list(allowed_account_ids or [])
+
+    def can_access_account(self, account_id):
+        if self.is_admin:
+            return True
+        return str(account_id) in {str(a) for a in self.allowed_account_ids}
+
+    def allowed_accounts(self, accounts_dict):
+        """Filter the global accounts dict down to the ones this user may
+        see. Admins get the whole dict back unchanged."""
+        if self.is_admin:
+            return accounts_dict
+        allowed = {str(a) for a in self.allowed_account_ids}
+        return {aid: acc for aid, acc in accounts_dict.items() if str(aid) in allowed}
+
+    @staticmethod
+    def _build(data):
+        return User(
+            data["id"],
+            data["username"],
+            data["password_hash"],
+            data.get("is_admin", False),
+            data.get("can_launch_analysis", False),
+            data.get("can_view_tokens", False),
+            data.get("allowed_account_ids", []),
+        )
 
     @staticmethod
     def get(user_id):
         users = FileStore.load("users", {})
         user_data = users.get(str(user_id))
-        if user_data:
-            return User(
-                user_data["id"],
-                user_data["username"],
-                user_data["password_hash"],
-                user_data.get("is_admin", False),
-            )
-        return None
+        return User._build(user_data) if user_data else None
 
     @staticmethod
     def get_by_username(username):
         users = FileStore.load("users", {})
-        for user_id, user_data in users.items():
+        for user_data in users.values():
             if user_data["username"] == username:
-                return User(
-                    user_data["id"],
-                    user_data["username"],
-                    user_data["password_hash"],
-                    user_data.get("is_admin", False),
-                )
+                return User._build(user_data)
         return None
 
 
 @login_manager.user_loader
 def load_user(user_id):
     return User.get(user_id)
+
+
+def _require_account_html(account_id):
+    """For HTML routes: returns (account_dict, None) on success, or
+    (None, redirect) on missing-account / forbidden so the caller can just
+    `return redirect_response`."""
+    accounts = FileStore.load("accounts", {})
+    account = accounts.get(account_id)
+    if not account:
+        return None, redirect(url_for("accounts"))
+    if not current_user.can_access_account(account_id):
+        flash("You don't have access to that account.", "danger")
+        return None, redirect(url_for("dashboard"))
+    return account, None
+
+
+def _require_account_json(account_id):
+    """For JSON routes: returns (account_dict, None) or (None, response)."""
+    accounts = FileStore.load("accounts", {})
+    account = accounts.get(account_id)
+    if not account:
+        return None, (jsonify(success=False, message="Account not found."), 404)
+    if not current_user.can_access_account(account_id):
+        return None, (jsonify(success=False, message="Forbidden."), 403)
+    return account, None
+
+
+@app.context_processor
+def inject_user_permissions():
+    """Make permission flags available in every template without each route
+    having to pass them."""
+    if current_user.is_authenticated:
+        return {
+            "user_can_launch_analysis": current_user.can_launch_analysis,
+            "user_can_view_tokens": current_user.can_view_tokens,
+        }
+    return {"user_can_launch_analysis": False, "user_can_view_tokens": False}
 
 
 @app.route("/")
@@ -195,8 +254,11 @@ def logout():
 @app.route("/dashboard")
 @login_required
 def dashboard():
-    accounts = FileStore.load("accounts", {})
+    accounts = current_user.allowed_accounts(FileStore.load("accounts", {}))
     ads_data = FileStore.load("ads", {})
+    if not current_user.is_admin:
+        # Hide ads from accounts the user can't see.
+        ads_data = {aid: ad for aid, ad in ads_data.items() if ad.get("account_id") in accounts}
     all_ads = enrich_ads(ads_data.values())
 
     for account in accounts.values():
@@ -296,6 +358,8 @@ def dashboard_sync_meta():
     for account_id, account in accounts.items():
         if not account.get("meta_connected"):
             continue
+        if not current_user.can_access_account(account_id):
+            continue
         if auto and not needs_sync(account):
             continue
         try:
@@ -344,15 +408,18 @@ def dashboard_sync_meta():
 @app.route("/accounts/<account_id>/connect-meta", methods=["GET", "POST"])
 @login_required
 def connect_meta(account_id):
+    account, err = _require_account_html(account_id)
+    if err:
+        return err
     accounts_data = FileStore.load("accounts", {})
-    account = accounts_data.get(account_id)
-    if not account:
-        return redirect(url_for("accounts"))
 
-    form_token = get_account_token(account) or ""
+    form_token = get_account_token(account) if current_user.can_view_tokens else ""
     form_account_id = account.get("meta_account_id", "")
 
     if request.method == "POST":
+        if not current_user.can_view_tokens:
+            flash("You don't have permission to edit Meta credentials.", "danger")
+            return redirect(url_for("connect_meta", account_id=account_id))
         access_token = request.form.get("access_token")
         ad_account_id = request.form.get("ad_account_id")
         form_token = access_token or form_token
@@ -381,9 +448,33 @@ def connect_meta(account_id):
     )
 
 
+@app.route("/accounts/<account_id>/rename", methods=["POST"])
+@login_required
+def rename_account(account_id):
+    if not current_user.is_admin:
+        return jsonify(success=False, message="Admin access required."), 403
+    payload = request.get_json(silent=True) or {}
+    new_name = (request.form.get("name") or payload.get("name") or "").strip()
+    if not new_name:
+        return jsonify(success=False, message="Name cannot be empty."), 400
+    if len(new_name) > 200:
+        return jsonify(success=False, message="Name too long (max 200 chars)."), 400
+    accounts = FileStore.load("accounts", {})
+    if account_id not in accounts:
+        return jsonify(success=False, message="Account not found."), 404
+    accounts[account_id]["name"] = new_name
+    FileStore.save("accounts", accounts)
+    return jsonify(success=True, name=new_name)
+
+
 @app.route("/accounts/<account_id>/sync-meta")
 @login_required
 def sync_meta(account_id):
+    if not current_user.can_access_account(account_id):
+        if request.args.get("ajax") == "1":
+            return jsonify(success=False, message="Forbidden."), 403
+        flash("You don't have access to that account.", "danger")
+        return redirect(url_for("dashboard"))
     accounts_data = FileStore.load("accounts", {})
     account = accounts_data.get(account_id)
     if not account or not account.get("meta_connected"):
@@ -524,10 +615,14 @@ def _run_transcription_job(ad_id, video_url):
 @app.route("/ads/<ad_id>/analyze-copy", methods=["POST"])
 @login_required
 def analyze_copy_route(ad_id):
+    if not current_user.can_launch_analysis:
+        return jsonify(success=False, message="You don't have permission to launch analysis."), 403
     ads_data = FileStore.load("ads", {})
     ad = ads_data.get(ad_id)
     if not ad:
         return jsonify(success=False, message="Ad not found."), 404
+    if not current_user.can_access_account(ad.get("account_id")):
+        return jsonify(success=False, message="Forbidden."), 403
     if not (ad.get("transcript") or ad.get("script")):
         return jsonify(
             success=False,
@@ -877,19 +972,20 @@ def _run_account_report_job(account_id):
 @app.route("/accounts/<account_id>/report/estimate", methods=["POST"])
 @login_required
 def report_estimate(account_id):
-    accounts = FileStore.load("accounts", {})
-    if account_id not in accounts:
-        return jsonify(success=False, message="Account not found."), 404
+    _, err = _require_account_json(account_id)
+    if err:
+        return err
     return jsonify(success=True, **_estimate_report_calls(account_id))
 
 
 @app.route("/accounts/<account_id>/report/start", methods=["POST"])
 @login_required
 def report_start(account_id):
-    accounts = FileStore.load("accounts", {})
-    account = accounts.get(account_id)
-    if not account:
-        return jsonify(success=False, message="Account not found."), 404
+    if not current_user.can_launch_analysis:
+        return jsonify(success=False, message="You don't have permission to launch analysis."), 403
+    account, err = _require_account_json(account_id)
+    if err:
+        return err
     if account.get("report_status") == "pending":
         return jsonify(success=False, message="A report is already running."), 409
     _update_account_fields(account_id, {
@@ -905,10 +1001,9 @@ def report_start(account_id):
 @app.route("/accounts/<account_id>/report/status")
 @login_required
 def report_status_endpoint(account_id):
-    accounts = FileStore.load("accounts", {})
-    account = accounts.get(account_id)
-    if not account:
-        return jsonify(success=False, message="Account not found."), 404
+    account, err = _require_account_json(account_id)
+    if err:
+        return err
     return jsonify(
         success=True,
         status=account.get("report_status", "idle"),
@@ -922,11 +1017,15 @@ def report_status_endpoint(account_id):
 @app.route("/ads/<ad_id>/transcribe", methods=["POST"])
 @login_required
 def transcribe_ad(ad_id):
+    if not current_user.can_launch_analysis:
+        return jsonify(success=False, message="You don't have permission to launch analysis."), 403
     ads_data = FileStore.load("ads", {})
     accounts = FileStore.load("accounts", {})
     ad = ads_data.get(ad_id)
     if not ad:
         return jsonify(success=False, message="Ad not found."), 404
+    if not current_user.can_access_account(ad.get("account_id")):
+        return jsonify(success=False, message="Forbidden."), 403
 
     account = accounts.get(ad.get("account_id"), {})
     video_url = None
@@ -974,6 +1073,10 @@ def ad_detail(ad_id):
     accounts = FileStore.load("accounts", {})
     raw_ad = ads_data.get(ad_id)
     if not raw_ad:
+        return redirect(url_for("dashboard"))
+
+    if not current_user.can_access_account(raw_ad.get("account_id")):
+        flash("You don't have access to that ad.", "danger")
         return redirect(url_for("dashboard"))
 
     ad = enrich_ad(raw_ad)
@@ -1046,6 +1149,9 @@ def ad_detail(ad_id):
 @login_required
 def accounts():
     if request.method == "POST":
+        if not current_user.is_admin:
+            flash("Only admins can create ad accounts.", "danger")
+            return redirect(url_for("accounts"))
         account_data = {
             "id": str(len(FileStore.load("accounts", {})) + 1),
             "name": request.form.get("name"),
@@ -1058,17 +1164,17 @@ def accounts():
         flash("Ad account added.", "success")
         return redirect(url_for("accounts"))
 
-    accounts_data = FileStore.load("accounts", {})
+    accounts_data = current_user.allowed_accounts(FileStore.load("accounts", {}))
     return render_template("accounts.html", accounts=accounts_data.values())
 
 
 @app.route("/accounts/<account_id>", methods=["GET"])
 @login_required
 def account_detail(account_id):
+    account, err = _require_account_html(account_id)
+    if err:
+        return err
     accounts_data = FileStore.load("accounts", {})
-    account = accounts_data.get(account_id)
-    if not account:
-        return redirect(url_for("accounts"))
 
     account["sync_due"] = needs_sync(account)
     account_sync_url = url_for("sync_meta", account_id=account_id)
@@ -1221,10 +1327,10 @@ def account_detail(account_id):
 @app.route("/accounts/<account_id>/competitors", methods=["GET", "POST"])
 @login_required
 def competitors(account_id):
+    account, err = _require_account_html(account_id)
+    if err:
+        return err
     accounts_data = FileStore.load("accounts", {})
-    account = accounts_data.get(account_id)
-    if not account:
-        return redirect(url_for("accounts"))
 
     if request.method == "POST":
         comp_data = {
@@ -1271,10 +1377,15 @@ def admin_create_user():
         flash("Admin access required.", "warning")
         return redirect(url_for("dashboard"))
 
+    accounts_data = FileStore.load("accounts", {})
+
     if request.method == "POST":
         username = request.form.get("username")
         password = request.form.get("password")
         is_admin = request.form.get("is_admin") == "on"
+        can_launch_analysis = request.form.get("can_launch_analysis") == "on"
+        can_view_tokens = request.form.get("can_view_tokens") == "on"
+        allowed_account_ids = request.form.getlist("allowed_account_ids")
 
         users_data = FileStore.load("users", {})
         new_id = str(max([int(k) for k in users_data.keys()], default=0) + 1)
@@ -1284,12 +1395,63 @@ def admin_create_user():
             "username": username,
             "password_hash": generate_password_hash(password),
             "is_admin": is_admin,
+            "can_launch_analysis": can_launch_analysis,
+            "can_view_tokens": can_view_tokens,
+            "allowed_account_ids": allowed_account_ids,
         }
         FileStore.save("users", users_data)
         flash("User created successfully.", "success")
         return redirect(url_for("admin_users"))
 
-    return render_template("admin_user_form.html")
+    return render_template(
+        "admin_user_form.html",
+        mode="create",
+        user_data=None,
+        accounts=accounts_data,
+    )
+
+
+@app.route("/admin/users/<user_id>/edit", methods=["GET", "POST"])
+@login_required
+def admin_edit_user(user_id):
+    if not current_user.is_admin:
+        flash("Admin access required.", "warning")
+        return redirect(url_for("dashboard"))
+
+    users_data = FileStore.load("users", {})
+    user_data = users_data.get(str(user_id))
+    if not user_data:
+        flash("User not found.", "danger")
+        return redirect(url_for("admin_users"))
+
+    accounts_data = FileStore.load("accounts", {})
+
+    if request.method == "POST":
+        # Username and password are optional on edit — only update if filled.
+        new_username = (request.form.get("username") or "").strip()
+        new_password = request.form.get("password") or ""
+        if new_username:
+            user_data["username"] = new_username
+        if new_password:
+            user_data["password_hash"] = generate_password_hash(new_password)
+        # Admins editing themselves keep their admin flag to avoid lockout.
+        is_self = str(user_id) == str(current_user.id)
+        user_data["is_admin"] = True if is_self else (request.form.get("is_admin") == "on")
+        user_data["can_launch_analysis"] = request.form.get("can_launch_analysis") == "on"
+        user_data["can_view_tokens"] = request.form.get("can_view_tokens") == "on"
+        user_data["allowed_account_ids"] = request.form.getlist("allowed_account_ids")
+
+        users_data[str(user_id)] = user_data
+        FileStore.save("users", users_data)
+        flash("User updated.", "success")
+        return redirect(url_for("admin_users"))
+
+    return render_template(
+        "admin_user_form.html",
+        mode="edit",
+        user_data=user_data,
+        accounts=accounts_data,
+    )
 
 
 @app.route("/admin/users/<user_id>/delete", methods=["POST"])
@@ -1412,7 +1574,7 @@ def _fetch_breakdowns_parallel(accounts_map, date_preset):
 
 
 def _build_analytics_context(scope_account_id=None):
-    accounts = FileStore.load("accounts", {})
+    accounts = current_user.allowed_accounts(FileStore.load("accounts", {}))
     ads_data = FileStore.load("ads", {})
 
     if scope_account_id:
@@ -1422,7 +1584,8 @@ def _build_analytics_context(scope_account_id=None):
         ads_iterable = (a for a in ads_data.values() if a.get("account_id") == scope_account_id)
     else:
         scope_account = None
-        ads_iterable = ads_data.values()
+        # Non-admins should only see ads from accounts they can access.
+        ads_iterable = (a for a in ads_data.values() if a.get("account_id") in accounts)
 
     ads = enrich_ads(ads_iterable)
     date_preset = insights_mod.resolve_range(request.args.get("range", insights_mod.DEFAULT_RANGE))
@@ -1524,6 +1687,9 @@ def analytics():
 @app.route("/accounts/<account_id>/analytics")
 @login_required
 def account_analytics(account_id):
+    if not current_user.can_access_account(account_id):
+        flash("You don't have access to that account.", "danger")
+        return redirect(url_for("dashboard"))
     context = _build_analytics_context(scope_account_id=account_id)
     if context is None:
         return redirect(url_for("accounts"))
@@ -1535,7 +1701,9 @@ def account_analytics(account_id):
 def analytics_compare():
     ad_ids = [aid for aid in request.args.getlist("ad") if aid]
     ads_data = FileStore.load("ads", {})
-    accounts = FileStore.load("accounts", {})
+    accounts = current_user.allowed_accounts(FileStore.load("accounts", {}))
+    if not current_user.is_admin:
+        ads_data = {aid: ad for aid, ad in ads_data.items() if ad.get("account_id") in accounts}
 
     selected = []
     for aid in ad_ids[:4]:

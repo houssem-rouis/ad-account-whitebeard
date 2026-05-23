@@ -50,10 +50,14 @@
     <div class="card p-4 mb-4" id="copy-audit-card" data-ad-id="{{ ad.id }}" data-status="{{ copy_analysis_status or '' }}">
       <div class="d-flex align-items-center justify-content-between mb-3">
         <h5 class="fw-semibold mb-0">Copywriting audit <span class="badge bg-secondary ms-1">Claude Sonnet 4.6</span></h5>
+        {% if user_can_launch_analysis %}
         <button type="button" class="btn btn-sm btn-outline-primary" id="analyze-copy-btn"
                 {% if copy_analysis_status == 'pending' %}disabled{% endif %}>
           {% if copy_analysis %}Re-analyze{% else %}Analyze copy{% endif %}
         </button>
+        {% else %}
+        <span class="text-faint small">Read-only access</span>
+        {% endif %}
       </div>
       <div id="audit-pending" class="alert alert-info py-2 small mb-3"
            style="display: {% if copy_analysis_status == 'pending' %}block{% else %}none{% endif %};">
@@ -215,10 +219,14 @@
     <div class="card p-4 mb-4" id="transcript-card" data-ad-id="{{ ad.id }}" data-status="{{ ad.transcript_status or '' }}">
       <div class="d-flex align-items-center justify-content-between mb-3">
         <h5 class="fw-semibold mb-0">Spoken text (Whisper)</h5>
+        {% if user_can_launch_analysis %}
         <button type="button" class="btn btn-sm btn-outline-primary" id="transcribe-btn"
                 {% if ad.transcript_status == 'pending' %}disabled{% endif %}>
           {% if ad.transcript %}Re-transcribe{% else %}Transcribe video{% endif %}
         </button>
+        {% else %}
+        <span class="text-faint small">Read-only access</span>
+        {% endif %}
       </div>
       <div id="transcript-status-banner" class="alert alert-info py-2 small mb-3"
            style="display: {% if ad.transcript_status == 'pending' %}block{% else %}none{% endif %};">
