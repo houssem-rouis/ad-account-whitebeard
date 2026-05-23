@@ -1,5 +1,25 @@
 {% extends 'base.html' %}
 {% block title %}{{ account.name }} · Whitebeard Ad Studio{% endblock %}
+
+{# ROAS-tiered status pill. Spend under $10 → "Not enough spend" overrides the ROAS tier. #}
+{% macro roas_pill(roas, spend) -%}
+  {% set r = roas|float(0) %}
+  {% set s = spend|float(0) %}
+  {%- if s < 10 -%}
+    <span class="roas-pill is-low-spend" title="Spend ${{ '%.2f' | format(s) }} (under $10 threshold)">⏳ Not enough spend</span>
+  {%- elif r >= 2 -%}
+    <span class="roas-pill is-breakthrough" title="ROAS {{ '%.2f' | format(r) }}x">🚀 Breakthrough</span>
+  {%- elif r >= 1.8 -%}
+    <span class="roas-pill is-winner" title="ROAS {{ '%.2f' | format(r) }}x">🏆 Winner</span>
+  {%- elif r >= 1.45 -%}
+    <span class="roas-pill is-watch" title="ROAS {{ '%.2f' | format(r) }}x">👀 To watch</span>
+  {%- elif r >= 0.8 -%}
+    <span class="roas-pill is-loser" title="ROAS {{ '%.2f' | format(r) }}x">📉 Loser</span>
+  {%- else -%}
+    <span class="roas-pill is-disaster" title="ROAS {{ '%.2f' | format(r) }}x">💀 Disaster</span>
+  {%- endif %}
+{%- endmacro %}
+
 {% block content %}
 <div class="page-header">
   <div>
@@ -63,44 +83,7 @@
 </div>
 
 <div class="row g-4">
-  <div class="col-lg-4">
-    <div class="card p-4">
-      <h5 class="fw-semibold mb-3">Filters</h5>
-      <form method="get" class="d-grid gap-3">
-        <div>
-          <label class="form-label" for="search">Search ads</label>
-          <input id="search" type="text" name="search" value="{{ filters.search }}" class="form-control" placeholder="Name or copy">
-        </div>
-        <div>
-          <label class="form-label" for="status">Status</label>
-          <select id="status" name="status" class="form-select">
-            <option value="" {% if not filters.status %}selected{% endif %}>All statuses</option>
-            <option value="running" {% if filters.status == 'running' %}selected{% endif %}>Running</option>
-            <option value="paused" {% if filters.status == 'paused' %}selected{% endif %}>Paused</option>
-            <option value="stopped" {% if filters.status == 'stopped' %}selected{% endif %}>Stopped</option>
-          </select>
-        </div>
-        <div class="row g-2">
-          <div class="col-6">
-            <label class="form-label" for="min_spend">Min spend</label>
-            <input id="min_spend" type="number" name="min_spend" value="{{ filters.min_spend }}" class="form-control" step="0.01" placeholder="0">
-          </div>
-          <div class="col-6">
-            <label class="form-label" for="max_spend">Max spend</label>
-            <input id="max_spend" type="number" name="max_spend" value="{{ filters.max_spend }}" class="form-control" step="0.01" placeholder="∞">
-          </div>
-        </div>
-        <div class="d-grid gap-2">
-          <button type="submit" class="btn btn-primary">Apply filters</button>
-          {% if filters.search or filters.status or filters.min_spend or filters.max_spend %}
-          <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('account_detail', account_id=account.id) }}">Clear all</a>
-          {% endif %}
-        </div>
-      </form>
-    </div>
-  </div>
-
-  <div class="col-lg-8">
+  <div class="col-12">
     <div class="card p-4">
       <div class="d-flex align-items-center justify-content-between mb-3">
         <div>
@@ -118,7 +101,10 @@
                     aria-expanded="{{ 'true' if loop.first else 'false' }}">
               <div class="d-flex justify-content-between align-items-center gap-3 w-100 pe-3">
                 <div class="min-w-0">
-                  <div class="fw-semibold text-truncate">{{ campaign.name }}</div>
+                  <div class="d-flex align-items-center gap-2 flex-wrap">
+                    <span class="fw-semibold text-truncate">{{ campaign.name }}</span>
+                    {{ roas_pill(campaign.roas, campaign.spend) }}
+                  </div>
                   <div class="text-faint small">Campaign · {{ campaign.adsets|length }} ad set{{ '' if campaign.adsets|length == 1 else 's' }} · {{ campaign.ads_count }} ad{{ '' if campaign.ads_count == 1 else 's' }}</div>
                 </div>
                 <div class="d-flex gap-4 flex-shrink-0">
@@ -148,47 +134,57 @@
           </h2>
           <div id="campaignCollapse{{ loop.index }}" class="accordion-collapse collapse {% if loop.first %}show{% endif %}" data-bs-parent="#campaignAccordion">
             <div class="accordion-body">
+              {% set campaign_index = loop.index %}
               {% for adset in campaign.adsets.values() %}
-              <div class="adset-card p-3 mb-3">
-                <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
-                  <div class="min-w-0">
-                    <h6 class="fw-semibold mb-1 text-truncate">{{ adset.name }}</h6>
-                    <p class="text-faint small mb-0">Ad set · {{ adset.ads_count }} creative{{ '' if adset.ads_count == 1 else 's' }}</p>
+              {% set adset_collapse_id = 'adsetCollapse-' ~ campaign_index ~ '-' ~ loop.index %}
+              <div class="adset-card mb-3">
+                <button type="button" class="adset-toggle collapsed"
+                        data-bs-toggle="collapse" data-bs-target="#{{ adset_collapse_id }}"
+                        aria-expanded="false" aria-controls="{{ adset_collapse_id }}">
+                  <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 w-100">
+                    <div class="min-w-0">
+                      <div class="d-flex align-items-center gap-2 flex-wrap mb-1">
+                        <h6 class="fw-semibold mb-0 text-truncate">{{ adset.name }}</h6>
+                        {{ roas_pill(adset.roas, adset.spend) }}
+                      </div>
+                      <p class="text-faint small mb-0">Ad set · {{ adset.ads_count }} creative{{ '' if adset.ads_count == 1 else 's' }}</p>
+                    </div>
+                    <div class="d-flex gap-4 flex-shrink-0">
+                      {% if adset.budget_usd > 0 %}
+                      <div class="kv-stack text-end">
+                        <span class="label">Budget</span>
+                        <span class="value money" data-usd="{{ adset.budget_usd }}" data-decimals="0">${{ '%.0f' | format(adset.budget_usd) }}</span>
+                      </div>
+                      {% endif %}
+                      {% if adset.spend > 0 or adset.budget_usd == 0 %}
+                      <div class="kv-stack text-end">
+                        <span class="label">Spend</span>
+                        <span class="value money" data-usd="{{ adset.spend }}" data-decimals="0">${{ '%.0f' | format(adset.spend) }}</span>
+                      </div>
+                      {% endif %}
+                      <div class="kv-stack text-end">
+                        <span class="label">Results</span>
+                        <span class="value">{{ adset.purchases }}</span>
+                      </div>
+                      <div class="kv-stack text-end">
+                        <span class="label">ROAS</span>
+                        <span class="value">{{ '%.2f' | format(adset.roas) }}x</span>
+                      </div>
+                    </div>
                   </div>
-                  <div class="d-flex gap-4 flex-shrink-0">
-                    {% if adset.budget_usd > 0 %}
-                    <div class="kv-stack text-end">
-                      <span class="label">Budget</span>
-                      <span class="value money" data-usd="{{ adset.budget_usd }}" data-decimals="0">${{ '%.0f' | format(adset.budget_usd) }}</span>
-                    </div>
-                    {% endif %}
-                    {% if adset.spend > 0 or adset.budget_usd == 0 %}
-                    <div class="kv-stack text-end">
-                      <span class="label">Spend</span>
-                      <span class="value money" data-usd="{{ adset.spend }}" data-decimals="0">${{ '%.0f' | format(adset.spend) }}</span>
-                    </div>
-                    {% endif %}
-                    <div class="kv-stack text-end">
-                      <span class="label">Results</span>
-                      <span class="value">{{ adset.purchases }}</span>
-                    </div>
-                    <div class="kv-stack text-end">
-                      <span class="label">ROAS</span>
-                      <span class="value">{{ '%.2f' | format(adset.roas) }}x</span>
-                    </div>
-                  </div>
-                </div>
-                <div class="table-responsive">
-                  <table class="table align-middle mb-0">
+                </button>
+                <div id="{{ adset_collapse_id }}" class="collapse">
+                  <div class="table-responsive adset-ads-table">
+                    <table class="table align-middle mb-0">
                     <thead>
                       <tr>
                         <th>Creative</th>
                         <th class="text-end">Spend</th>
                         <th class="text-end">Results</th>
                         <th class="text-end">ROAS</th>
-                        <th class="text-end">CTR</th>
-                        <th class="text-end">Clicks</th>
-                        <th class="text-end">Impr.</th>
+                        <th class="text-end d-none d-sm-table-cell">CTR</th>
+                        <th class="text-end d-none d-md-table-cell">Clicks</th>
+                        <th class="text-end d-none d-md-table-cell">Impr.</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -203,7 +199,16 @@
                             <div class="ad-thumb-sm"></div>
                             {% endif %}
                             <div class="min-w-0">
-                              <div class="fw-semibold text-truncate">{{ ad.name }}</div>
+                              <div class="d-flex align-items-center gap-2 flex-wrap">
+                                {% if ad.name|length > 80 %}
+                                <span class="ad-name fw-semibold" data-full="{{ ad.name }}" data-short="{{ ad.name[:80] }}">
+                                  <span class="ad-name-text">{{ ad.name[:80] }}</span><button type="button" class="ad-name-toggle" aria-expanded="false" aria-label="Show full name">…</button>
+                                </span>
+                                {% else %}
+                                <span class="fw-semibold">{{ ad.name }}</span>
+                                {% endif %}
+                                {{ roas_pill(ad.roas, ad.spend_usd) }}
+                              </div>
                               <div class="text-faint small text-truncate">{{ ad.script[:80] }}{% if ad.script|length > 80 %}…{% endif %}</div>
                             </div>
                           </div>
@@ -211,13 +216,14 @@
                         <td class="text-end money" data-usd="{{ ad.spend_usd }}">${{ '%.2f' | format(ad.spend_usd) }}</td>
                         <td class="text-end">{{ ad.purchases }}</td>
                         <td class="text-end">{{ '%.2f' | format(ad.roas) }}x</td>
-                        <td class="text-end">{{ '%.2f' | format(ad.ctr) }}%</td>
-                        <td class="text-end">{{ ad.clicks | int }}</td>
-                        <td class="text-end">{{ ad.impressions | int }}</td>
+                        <td class="text-end d-none d-sm-table-cell">{{ '%.2f' | format(ad.ctr) }}%</td>
+                        <td class="text-end d-none d-md-table-cell">{{ ad.clicks | int }}</td>
+                        <td class="text-end d-none d-md-table-cell">{{ ad.impressions | int }}</td>
                       </tr>
                       {% endfor %}
                     </tbody>
                   </table>
+                </div>
                 </div>
               </div>
               {% endfor %}
@@ -230,7 +236,7 @@
       <div class="empty-state mb-0">
         <strong>No active campaigns</strong>
         {% if account.meta_connected %}
-          Try adjusting filters or syncing the account to fetch fresh data.
+          Sync the account to fetch fresh data.
         {% else %}
           Connect this account to Meta Ads to import live campaigns.
         {% endif %}

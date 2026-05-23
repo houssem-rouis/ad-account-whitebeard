@@ -107,10 +107,10 @@
             <tr>
               <th>Account</th>
               <th class="text-end">Spend</th>
-              <th class="text-end">Revenue</th>
+              <th class="text-end d-none d-sm-table-cell">Revenue</th>
               <th class="text-end">ROAS</th>
-              <th class="text-end">Results</th>
-              <th class="text-end">CPA</th>
+              <th class="text-end d-none d-sm-table-cell">Results</th>
+              <th class="text-end d-none d-md-table-cell">CPA</th>
             </tr>
           </thead>
           <tbody>
@@ -118,10 +118,10 @@
             <tr>
               <td><a class="fw-semibold text-decoration-none" href="{{ url_for('account_analytics', account_id=row.account_id) }}">{{ row.name }}</a></td>
               <td class="text-end money" data-usd="{{ row.spend }}">${{ '%.2f' | format(row.spend) }}</td>
-              <td class="text-end money" data-usd="{{ row.revenue }}">${{ '%.2f' | format(row.revenue) }}</td>
+              <td class="text-end money d-none d-sm-table-cell" data-usd="{{ row.revenue }}">${{ '%.2f' | format(row.revenue) }}</td>
               <td class="text-end fw-semibold {% if row.roas >= 2 %}text-success{% elif row.roas < 1 and row.spend > 0 %}text-danger{% endif %}">{{ '%.2f' | format(row.roas) }}x</td>
-              <td class="text-end">{{ row.purchases }}</td>
-              <td class="text-end money" data-usd="{{ row.cpa }}">${{ '%.2f' | format(row.cpa) }}</td>
+              <td class="text-end d-none d-sm-table-cell">{{ row.purchases }}</td>
+              <td class="text-end money d-none d-md-table-cell" data-usd="{{ row.cpa }}">${{ '%.2f' | format(row.cpa) }}</td>
             </tr>
             {% endfor %}
           </tbody>
@@ -224,26 +224,26 @@
       <thead>
         <tr>
           <th>Campaign</th>
-          <th>Account</th>
+          <th class="d-none d-md-table-cell">Account</th>
           <th class="text-end">Spend</th>
-          <th class="text-end">Results</th>
-          <th class="text-end">CPA</th>
+          <th class="text-end d-none d-sm-table-cell">Results</th>
+          <th class="text-end d-none d-md-table-cell">CPA</th>
           <th class="text-end">ROAS</th>
-          <th class="text-end">CTR</th>
-          <th class="text-end">Ads</th>
+          <th class="text-end d-none d-sm-table-cell">CTR</th>
+          <th class="text-end d-none d-lg-table-cell">Ads</th>
         </tr>
       </thead>
       <tbody>
         {% for row in campaign_rows %}
         <tr>
           <td class="fw-semibold">{{ row.name }}</td>
-          <td class="text-muted small">{{ row.account_name }}</td>
+          <td class="text-muted small d-none d-md-table-cell">{{ row.account_name }}</td>
           <td class="text-end money" data-usd="{{ row.spend }}">${{ '%.2f' | format(row.spend) }}</td>
-          <td class="text-end">{{ row.purchases }}</td>
-          <td class="text-end money" data-usd="{{ row.cpa }}">${{ '%.2f' | format(row.cpa) }}</td>
+          <td class="text-end d-none d-sm-table-cell">{{ row.purchases }}</td>
+          <td class="text-end money d-none d-md-table-cell" data-usd="{{ row.cpa }}">${{ '%.2f' | format(row.cpa) }}</td>
           <td class="text-end fw-semibold {% if row.roas >= 2 %}text-success{% elif row.roas < 1 and row.spend > 0 %}text-danger{% endif %}">{{ '%.2f' | format(row.roas) }}x</td>
-          <td class="text-end">{{ '%.2f' | format(row.ctr) }}%</td>
-          <td class="text-end">{{ row.ads_count }}</td>
+          <td class="text-end d-none d-sm-table-cell">{{ '%.2f' | format(row.ctr) }}%</td>
+          <td class="text-end d-none d-lg-table-cell">{{ row.ads_count }}</td>
         </tr>
         {% endfor %}
       </tbody>
@@ -352,28 +352,28 @@
       <thead>
         <tr>
           <th>Editor</th>
-          <th class="text-end">Ads</th>
+          <th class="text-end d-none d-lg-table-cell">Ads</th>
           <th class="text-end">Spend</th>
           <th class="text-end">ROAS</th>
-          <th class="text-end">Results</th>
-          <th class="text-end">CPA</th>
-          <th class="text-end">CTR</th>
-          <th class="text-end">CPM</th>
-          <th class="text-end">Impressions</th>
+          <th class="text-end d-none d-sm-table-cell">Results</th>
+          <th class="text-end d-none d-md-table-cell">CPA</th>
+          <th class="text-end d-none d-md-table-cell">CTR</th>
+          <th class="text-end d-none d-lg-table-cell">CPM</th>
+          <th class="text-end d-none d-lg-table-cell">Impressions</th>
         </tr>
       </thead>
       <tbody>
         {% for row in editor_rows %}
         <tr>
           <td class="fw-semibold">{{ row.editor }}</td>
-          <td class="text-end">{{ row.ads_count }}</td>
+          <td class="text-end d-none d-lg-table-cell">{{ row.ads_count }}</td>
           <td class="text-end money" data-usd="{{ row.spend }}">${{ '%.2f' | format(row.spend) }}</td>
           <td class="text-end fw-semibold {% if row.roas >= 2 %}text-success{% elif row.roas < 1 and row.spend > 0 %}text-danger{% endif %}">{{ '%.2f' | format(row.roas) }}x</td>
-          <td class="text-end">{{ row.purchases }}</td>
-          <td class="text-end money" data-usd="{{ row.cpa }}">${{ '%.2f' | format(row.cpa) }}</td>
-          <td class="text-end">{{ '%.2f' | format(row.ctr) }}%</td>
-          <td class="text-end money" data-usd="{{ row.cpm }}">${{ '%.2f' | format(row.cpm) }}</td>
-          <td class="text-end">{{ '{:,}'.format(row.impressions) }}</td>
+          <td class="text-end d-none d-sm-table-cell">{{ row.purchases }}</td>
+          <td class="text-end money d-none d-md-table-cell" data-usd="{{ row.cpa }}">${{ '%.2f' | format(row.cpa) }}</td>
+          <td class="text-end d-none d-md-table-cell">{{ '%.2f' | format(row.ctr) }}%</td>
+          <td class="text-end money d-none d-lg-table-cell" data-usd="{{ row.cpm }}">${{ '%.2f' | format(row.cpm) }}</td>
+          <td class="text-end d-none d-lg-table-cell">{{ '{:,}'.format(row.impressions) }}</td>
         </tr>
         {% endfor %}
       </tbody>

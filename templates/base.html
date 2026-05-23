@@ -23,14 +23,14 @@
   <body>
     <nav class="app-navbar">
       <div class="container">
-        <div class="d-flex align-items-center justify-content-between gap-3">
+        <div class="app-navbar-row">
           <a class="app-brand" href="{{ url_for('dashboard') if current_user.is_authenticated else url_for('login') }}">
             <span class="app-brand-mark">W</span>
-            <span>Whitebeard Ad Studio</span>
+            <span class="app-brand-text">Whitebeard Ad Studio</span>
           </a>
 
           {% if current_user.is_authenticated %}
-          <ul class="nav d-none d-md-flex gap-1 mb-0">
+          <ul class="nav app-nav-links gap-1 mb-0">
             <li class="nav-item">
               <a class="app-nav-link {% if request.endpoint == 'dashboard' %}is-active{% endif %}"
                  href="{{ url_for('dashboard') }}">Dashboard</a>
@@ -52,7 +52,7 @@
           </ul>
           {% endif %}
 
-          <div class="d-flex align-items-center gap-2">
+          <div class="app-navbar-actions">
             <div class="currency-toggle-group" role="group" aria-label="Display currency">
               {% for code, meta in display_currencies.items() %}
               <button type="button" class="currency-toggle" data-currency="{{ code }}">{{ code }}</button>
@@ -68,17 +68,40 @@
               </svg>
             </button>
             {% if current_user.is_authenticated %}
-            <a class="icon-btn" href="{{ url_for('logout') }}" aria-label="Logout" title="Logout">
+            <a class="icon-btn app-logout-btn" href="{{ url_for('logout') }}" aria-label="Logout" title="Logout">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
                 <polyline points="16 17 21 12 16 7"></polyline>
                 <line x1="21" y1="12" x2="9" y2="12"></line>
               </svg>
             </a>
+            <button id="nav-toggle" type="button" class="icon-btn app-nav-toggle"
+                    aria-label="Open menu" aria-expanded="false" aria-controls="app-nav-drawer">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <line x1="3" y1="6" x2="21" y2="6"></line>
+                <line x1="3" y1="12" x2="21" y2="12"></line>
+                <line x1="3" y1="18" x2="21" y2="18"></line>
+              </svg>
+            </button>
             {% endif %}
           </div>
         </div>
       </div>
+
+      {% if current_user.is_authenticated %}
+      <div id="app-nav-drawer" class="app-nav-drawer" hidden>
+        <a class="app-nav-drawer-link {% if request.endpoint == 'dashboard' %}is-active{% endif %}"
+           href="{{ url_for('dashboard') }}">Dashboard</a>
+        <a class="app-nav-drawer-link {% if request.endpoint in ('accounts', 'account_detail', 'connect_meta', 'ad_detail', 'competitors') %}is-active{% endif %}"
+           href="{{ url_for('accounts') }}">Ad Accounts</a>
+        <a class="app-nav-drawer-link {% if request.endpoint in ('analytics', 'analytics_compare') %}is-active{% endif %}"
+           href="{{ url_for('analytics') }}">Analytics</a>
+        {% if current_user.is_admin %}
+        <a class="app-nav-drawer-link {% if request.endpoint in ('admin_users', 'admin_create_user') %}is-active{% endif %}"
+           href="{{ url_for('admin_users') }}">Users</a>
+        {% endif %}
+      </div>
+      {% endif %}
     </nav>
 
     <main class="container py-4">

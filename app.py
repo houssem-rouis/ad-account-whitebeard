@@ -1,3 +1,5 @@
+import os
+import secrets
 from concurrent.futures import ThreadPoolExecutor
 
 from flask import Flask, render_template, redirect, url_for, flash, request, jsonify
@@ -12,6 +14,7 @@ from flask_login import (
 from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime
 from storage import FileStore
+from crypto import encrypt_token, get_account_token
 from services.ad_provider import (
     connect_meta_account,
     fetch_meta_ads,
@@ -23,7 +26,9 @@ from treatment import enrich_ad, enrich_ads, fx_rate, FX_RATES_TO_USD
 import insights as insights_mod
 
 app = Flask(__name__)
-app.config["SECRET_KEY"] = "dev-secret-key-change-in-production"
+# In production, SECRET_KEY must be set via env var. For local dev we fall back
+# to an ephemeral key (sessions don't survive restarts, which is fine locally).
+app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY") or secrets.token_hex(32)
 
 login_manager = LoginManager()
 login_manager.init_app(app)
@@ -266,7 +271,7 @@ def dashboard_sync_meta():
             continue
         try:
             ads = fetch_meta_ads(
-                account.get("meta_access_token"), account.get("meta_account_id")
+                get_account_token(account), account.get("meta_account_id")
             )
             for ad in ads:
                 ads_data[ad["id"]] = build_meta_ad_record(account_id, ad)
@@ -313,7 +318,7 @@ def connect_meta(account_id):
     if not account:
         return redirect(url_for("accounts"))
 
-    form_token = account.get("meta_access_token", "")
+    form_token = get_account_token(account) or ""
     form_account_id = account.get("meta_account_id", "")
 
     if request.method == "POST":
@@ -324,7 +329,7 @@ def connect_meta(account_id):
         try:
             connection = connect_meta_account(access_token, ad_account_id)
             account["meta_connected"] = True
-            account["meta_access_token"] = access_token
+            account["meta_access_token"] = encrypt_token(access_token)
             account["meta_account_id"] = connection.get("account_id")
             account["meta_account_name"] = connection.get("account_name")
             account["meta_currency"] = connection.get("currency", "USD")
@@ -359,7 +364,7 @@ def sync_meta(account_id):
 
     try:
         ads = fetch_meta_ads(
-            account.get("meta_access_token"), account.get("meta_account_id")
+            get_account_token(account), account.get("meta_account_id")
         )
         all_ads = FileStore.load("ads", {})
         for ad in ads:
@@ -401,7 +406,7 @@ def ad_detail(ad_id):
 
     if ad.get("video_id") and account.get("meta_access_token"):
         video_media = fetch_meta_video_media(
-            ad["video_id"], account["meta_access_token"]
+            ad["video_id"], get_account_token(account)
         )
         ad["video_source_url"] = video_media.get("source")
         if not ad.get("thumbnail_url"):
@@ -762,7 +767,7 @@ def _fetch_breakdowns_parallel(accounts_map, date_preset):
 
     jobs = []
     for account_id, account in accounts_map.items():
-        token = account.get("meta_access_token")
+        token = get_account_token(account)
         meta_account_id = account.get("meta_account_id") or account_id
         currency = (account.get("meta_currency") or "USD").upper()
         usd_rate = fx_rate(currency)
@@ -918,16 +923,38 @@ def analytics_compare():
     )
 
 
-if __name__ == "__main__":
-    # Create default admin if needed
+def _seed_admin_user():
+    """Create the admin user if no user with that username exists yet.
+    Username comes from ADMIN_USERNAME (default 'GPS').
+    Password comes from ADMIN_PASSWORD (REQUIRED in production; falls back to
+    'Rouis2024+' only when FLASK_ENV is not 'production').
+    """
+    admin_username = os.environ.get("ADMIN_USERNAME", "GPS")
+    admin_password = os.environ.get("ADMIN_PASSWORD")
+    if not admin_password:
+        if os.environ.get("FLASK_ENV") == "production":
+            raise RuntimeError(
+                "ADMIN_PASSWORD env var is required in production. "
+                "Set it in your hosting provider's dashboard before starting the app."
+            )
+        admin_password = "Rouis2024+"
+
     users = FileStore.load("users", {})
-    if not users or not any(u.get("username") == "admin" for u in users.values()):
+    if not users or not any(u.get("username") == admin_username for u in users.values()):
         users["1"] = {
             "id": "1",
-            "username": "admin",
-            "password_hash": generate_password_hash("admin123"),
+            "username": admin_username,
+            "password_hash": generate_password_hash(admin_password),
             "is_admin": True,
         }
         FileStore.save("users", users)
 
-    app.run(debug=True, host="0.0.0.0", port=5000)
+
+# Always seed on import — this runs both under `python app.py` and under gunicorn.
+_seed_admin_user()
+
+
+if __name__ == "__main__":
+    debug = os.environ.get("FLASK_DEBUG", "0") == "1"
+    port = int(os.environ.get("PORT", "5000"))
+    app.run(debug=debug, host="0.0.0.0", port=port)

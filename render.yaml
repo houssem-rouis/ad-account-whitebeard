@@ -1,0 +1,29 @@
+services:
+  - type: web
+    name: whitebeard-ad-studio
+    runtime: python
+    plan: starter            # $7/mo, always-on; switch to "free" to test (sleeps after 15 min idle)
+    region: oregon            # or "frankfurt" / "singapore" / etc. — pick what's closest to you
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app --workers 2 --threads 4 --timeout 120 --bind 0.0.0.0:$PORT
+    healthCheckPath: /login
+    autoDeploy: true
+    disk:
+      name: data
+      mountPath: /var/data    # matches DATA_DIR env var below — persists across deploys
+      sizeGB: 1
+    envVars:
+      - key: FLASK_ENV
+        value: production
+      - key: DATA_DIR
+        value: /var/data
+      - key: SECRET_KEY
+        generateValue: true   # Render generates a strong random value at first deploy
+      - key: TOKEN_ENCRYPTION_KEY
+        sync: false           # You'll paste this in the dashboard (the value from your local .secret.key)
+      - key: ADMIN_USERNAME
+        value: GPS
+      - key: ADMIN_PASSWORD
+        sync: false           # You'll paste this in the dashboard so it isn't in git
+      - key: PYTHON_VERSION
+        value: "3.11"

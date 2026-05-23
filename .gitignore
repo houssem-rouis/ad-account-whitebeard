@@ -8,3 +8,5 @@ instance/
 .DS_Store
 # Local user data (contains Meta access tokens — do not commit)
 data/
+# Local symmetric key used to encrypt/decrypt stored tokens — must never be committed
+.secret.key

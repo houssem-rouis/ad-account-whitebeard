@@ -379,6 +379,83 @@ h1, h2, h3, h4, h5, h6 {
   background: currentColor;
 }
 
+/* Inline truncated ad name with expand/collapse toggle */
+.ad-name {
+  /* Allow long names to wrap when expanded; collapsed view is char-limited so no overflow */
+  word-break: break-word;
+}
+
+.ad-name-toggle {
+  background: transparent;
+  border: 0;
+  padding: 0 0.15rem;
+  margin-left: 0.1rem;
+  color: var(--color-text-faint);
+  font-weight: 600;
+  font-size: 0.85em;
+  line-height: 1;
+  cursor: pointer;
+  border-radius: 4px;
+  vertical-align: baseline;
+}
+
+.ad-name-toggle:hover { color: var(--color-primary); background: var(--color-primary-soft); }
+.ad-name-toggle:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 1px;
+}
+
+/* ROAS-tier status pills */
+.roas-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.18rem 0.55rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  line-height: 1.15;
+  border-radius: 999px;
+  white-space: nowrap;
+  border: 1px solid transparent;
+  vertical-align: middle;
+  letter-spacing: 0.01em;
+}
+
+.roas-pill.is-low-spend {
+  color: #475569;
+  background: rgba(100, 116, 139, 0.14);
+}
+
+.roas-pill.is-breakthrough {
+  color: #6d28d9;
+  background: rgba(124, 58, 237, 0.12);
+}
+.roas-pill.is-winner {
+  /* deeper, saturated green to read as "win" */
+  color: #15803d;
+  background: rgba(22, 163, 74, 0.14);
+}
+.roas-pill.is-watch {
+  /* lighter green so it's distinct from Winner */
+  color: #047857;
+  background: rgba(16, 185, 129, 0.10);
+}
+.roas-pill.is-loser {
+  color: #b45309;
+  background: rgba(217, 119, 6, 0.14);
+}
+.roas-pill.is-disaster {
+  color: #b91c1c;
+  background: rgba(220, 38, 38, 0.14);
+}
+
+html[data-theme='dark'] .roas-pill.is-low-spend    { color: #cbd5e1; background: rgba(148, 163, 184, 0.16); }
+html[data-theme='dark'] .roas-pill.is-breakthrough { color: #c4b5fd; background: rgba(167, 139, 250, 0.18); }
+html[data-theme='dark'] .roas-pill.is-winner       { color: #86efac; background: rgba(74, 222, 128, 0.18); }
+html[data-theme='dark'] .roas-pill.is-watch        { color: #6ee7b7; background: rgba(52, 211, 153, 0.14); }
+html[data-theme='dark'] .roas-pill.is-loser        { color: #fdba74; background: rgba(251, 146, 60, 0.18); }
+html[data-theme='dark'] .roas-pill.is-disaster     { color: #fca5a5; background: rgba(248, 113, 113, 0.18); }
+
 .status-pill.is-running { color: var(--color-success); background: var(--color-success-soft); border-color: transparent; }
 .status-pill.is-paused { color: var(--color-warning); background: var(--color-warning-soft); border-color: transparent; }
 .status-pill.is-stopped, .status-pill.is-disabled { color: var(--color-danger); background: var(--color-danger-soft); border-color: transparent; }
@@ -632,6 +709,52 @@ html[data-theme='dark'] .accordion-button::after {
   background: var(--color-surface-muted);
   border-radius: var(--radius-md);
   border: 1px solid var(--color-border);
+  overflow: hidden;
+}
+
+.adset-toggle {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.85rem 1rem;
+  background: transparent;
+  border: 0;
+  text-align: left;
+  color: inherit;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.adset-toggle:hover { background: var(--color-primary-soft); }
+.adset-toggle:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: -2px;
+}
+
+/* Chevron indicator — mirrors Bootstrap accordion-button caret behavior */
+.adset-toggle::after {
+  content: '';
+  flex-shrink: 0;
+  width: 1.1rem;
+  height: 1.1rem;
+  margin-left: 0.75rem;
+  background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%2364748b' stroke-linecap='round' stroke-linejoin='round' stroke-width='2'%3e%3cpath d='M2 5l6 6 6-6'/%3e%3c/svg%3e");
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 1.1rem;
+  transform: rotate(-180deg);
+  transition: transform 0.2s ease;
+}
+
+.adset-toggle.collapsed::after { transform: rotate(0deg); }
+
+html[data-theme='dark'] .adset-toggle::after {
+  filter: invert(0.85);
+}
+
+.adset-ads-table {
+  padding: 0 1rem 1rem;
 }
 
 .kv-stack { display: flex; flex-direction: column; gap: 0.05rem; }
@@ -871,4 +994,197 @@ html[data-theme='dark'] .accordion-button::after {
   color: var(--color-text-faint);
   text-transform: uppercase;
   letter-spacing: 0.08em;
+}
+
+/* ---------------------------------------------------------------------------
+   Navbar layout (mobile drawer)
+--------------------------------------------------------------------------- */
+.app-navbar-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.app-nav-links {
+  display: flex;
+}
+
+.app-navbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.app-nav-toggle { display: none; }
+
+.app-nav-drawer { display: none; }
+
+@media (max-width: 767.98px) {
+  .app-nav-links { display: none; }
+  .app-nav-toggle { display: inline-flex; }
+  .app-brand-text {
+    /* Truncate long brand on phones so the toggle has room */
+    max-width: 9rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .app-nav-drawer {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    padding: 0.75rem 1rem 1rem;
+    margin-top: 0.5rem;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-md);
+    max-height: 0;
+    overflow: hidden;
+    opacity: 0;
+    transform: translateY(-6px);
+    transition: max-height 0.2s ease, opacity 0.18s ease, transform 0.2s ease, padding 0.2s ease;
+  }
+
+  .app-nav-drawer:not([hidden]) {
+    max-height: 24rem;
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.app-nav-drawer-link {
+  display: block;
+  padding: 0.75rem 0.85rem;
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+  text-decoration: none;
+  font-weight: 500;
+  min-height: 44px;
+  line-height: 1.3;
+}
+
+.app-nav-drawer-link:hover,
+.app-nav-drawer-link:focus { background: var(--color-primary-soft); color: var(--color-text); }
+.app-nav-drawer-link.is-active { background: var(--color-primary-soft); color: var(--color-primary); }
+
+/* ---------------------------------------------------------------------------
+   Mobile tuning
+--------------------------------------------------------------------------- */
+@supports (padding: max(0px)) {
+  body {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .app-navbar { padding-top: max(1rem, env(safe-area-inset-top)); }
+}
+
+@media (max-width: 767.98px) {
+  .app-navbar { padding: 0.75rem 0; }
+
+  main.container { padding-top: 1rem; padding-bottom: 1.25rem; }
+
+  /* Page headers: stack and let actions span full width */
+  .page-header { gap: 0.75rem; margin-bottom: 1.25rem; }
+  .page-header h1 { font-size: 1.4rem; }
+  .page-header .page-header-actions {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+  .page-header .page-header-actions > .btn {
+    flex: 1 1 calc(50% - 0.25rem);
+    min-height: 44px;
+  }
+  .page-header .page-header-actions > .btn:only-child { flex: 1 1 100%; }
+
+  /* Bigger touch targets for icon-only controls */
+  .icon-btn { width: 40px; height: 40px; }
+  .icon-btn svg { width: 20px; height: 20px; }
+  .currency-toggle { padding: 0.45rem 0.85rem; font-size: 0.82rem; }
+
+  /* Prevent iOS Safari from zooming on focus (needs >=16px) */
+  input.form-control,
+  select.form-select,
+  textarea.form-control {
+    font-size: 16px;
+  }
+
+  /* Cards & paddings: tighter on phones */
+  .card.p-4 { padding: 1.1rem !important; }
+  .card.p-3 { padding: 0.9rem !important; }
+
+  /* Metric cards: condense */
+  .metric-card { padding: 1rem; }
+  .metric-card .value { font-size: 1.35rem; }
+
+  /* Summary grid: keep 2 cols but tighten gap */
+  .summary-grid { gap: 0.5rem; }
+  .summary-grid > div { padding: 0.7rem 0.8rem; }
+  .summary-grid .value { font-size: 1.02rem; }
+
+  /* Tables: tighten and stop forcing wide layout — let table-responsive scroll */
+  .table > :not(caption) > * > * { padding: 0.6rem 0.55rem; font-size: 0.85rem; }
+  .table thead th { font-size: 0.65rem; }
+  .table-responsive { -webkit-overflow-scrolling: touch; }
+
+  /* Accordion headers: stack metrics under the title instead of crowding right */
+  .accordion-button .d-flex.gap-4 {
+    gap: 0.6rem 1.1rem !important;
+    flex-wrap: wrap;
+    justify-content: flex-start !important;
+    width: 100%;
+  }
+  .accordion-button > .d-flex {
+    flex-wrap: wrap;
+    align-items: flex-start !important;
+  }
+  .accordion-button { padding: 0.85rem 1rem; }
+
+  /* Ad-set header inside accordion */
+  .adset-card .d-flex.gap-4 {
+    gap: 0.5rem 1rem !important;
+    flex-wrap: wrap;
+    justify-content: flex-start !important;
+  }
+
+  /* Creative grid: smaller tiles on phones so two fit per row */
+  .creative-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 0.65rem; }
+  .creative-tile-body { padding: 0.65rem 0.7rem; gap: 0.35rem; }
+
+  /* Creative stage: cap height so the rest of the page is reachable */
+  .creative-stage img,
+  .creative-stage video { max-height: 60vh; }
+
+  /* Toasts: full-width-ish so users can read them */
+  .toast-stack { right: 0.75rem; left: 0.75rem; top: 0.75rem; max-width: none; }
+
+  /* Sync overlay card: fit phone width */
+  .sync-loader-card { margin: 0 1rem; }
+
+  /* Top spenders / recent ads rows: keep right-side stats but ensure no overflow */
+  .list-group-item-action { padding: 0.75rem 0.6rem; }
+
+  /* Heatmap cells slightly tighter */
+  .heatmap td { min-width: 84px; padding: 0.55rem 0.6rem; font-size: 0.8rem; }
+  .heatmap th { padding: 0.3rem 0.5rem; }
+
+  /* Funnel: single column on phone */
+  .funnel-step {
+    grid-template-columns: 1fr;
+    gap: 0.35rem;
+  }
+  .funnel-value { text-align: right; }
+}
+
+@media (max-width: 420px) {
+  .app-brand-text { display: none; }
+  .page-header .page-header-actions > .btn { flex: 1 1 100%; }
+  .compare-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+/* Make Bootstrap's btn-sm hit the touch-target bar on phones */
+@media (hover: none) and (pointer: coarse) {
+  .btn { min-height: 40px; }
+  .btn-sm { min-height: 36px; }
 }

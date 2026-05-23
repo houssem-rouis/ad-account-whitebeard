@@ -2,6 +2,8 @@ import time
 
 import requests
 
+from crypto import get_account_token
+
 GRAPH_VERSION = "v16.0"
 GRAPH_BASE = f"https://graph.facebook.com/{GRAPH_VERSION}"
 
@@ -281,7 +283,7 @@ def fetch_meta_video_media(video_id: str, access_token: str):
 def fetch_ads(account_config: dict):
     if account_config.get("provider", "").lower().startswith("facebook"):
         return fetch_meta_ads(
-            account_config.get("meta_access_token"),
+            get_account_token(account_config),
             account_config.get("meta_account_id"),
         )
     return []
