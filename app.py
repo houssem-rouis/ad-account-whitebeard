@@ -748,6 +748,38 @@ def _resolve_report_video_url(ad, token):
     )
 
 
+def _slim_copy_analysis(analysis):
+    """Strip a per-ad copy_analysis down to only the fields the strategist
+    reasons over. The full audit (strengths/weaknesses/test_suggestions and
+    every `reasoning` blurb) roughly triples the per-ad token cost; the
+    strategist re-derives those itself, so we drop them to keep the
+    account-wide prompt under the model's context window."""
+    if not isinstance(analysis, dict):
+        return analysis
+    avatar = analysis.get("avatar") or {}
+    awareness = analysis.get("awareness_level") or {}
+    sophistication = analysis.get("sophistication_level") or {}
+    hook = analysis.get("hook") or {}
+    score = analysis.get("overall_score") or {}
+    return {
+        "avatar": avatar.get("demographic") if isinstance(avatar, dict) else avatar,
+        "awareness_stage": awareness.get("stage") if isinstance(awareness, dict) else awareness,
+        "sophistication_stage": (
+            sophistication.get("stage") if isinstance(sophistication, dict) else sophistication
+        ),
+        "hook": {
+            "opening_line": hook.get("opening_line"),
+            "type": hook.get("type"),
+            "strength": hook.get("strength"),
+        } if isinstance(hook, dict) else hook,
+        "angle": analysis.get("angle"),
+        "frameworks_detected": analysis.get("frameworks_detected"),
+        "tone": analysis.get("tone"),
+        "style": analysis.get("style"),
+        "score": score.get("value") if isinstance(score, dict) else score,
+    }
+
+
 def _build_report_account_context(account_id, account):
     """Pull last-28d metrics from Meta + merge with our cached transcripts
     and copy_analyses, then add a country rollup. Feed the result to the
@@ -810,8 +842,8 @@ def _build_report_account_context(account_id, account):
             "cpa": m["cpa"],
             "cpm": round(m["spend"] / m["impressions"] * 1000, 2) if m["impressions"] else 0,
             "cpc": round(m["spend"] / m["clicks"], 2) if m["clicks"] else 0,
-            "text": text[:1500],
-            "copy_analysis": matched.get("copy_analysis"),
+            "text": text[:500],
+            "copy_analysis": _slim_copy_analysis(matched.get("copy_analysis")),
         })
 
     country_summary = insights_mod.aggregate_country(country_rows)[:15]

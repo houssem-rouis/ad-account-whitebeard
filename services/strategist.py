@@ -245,7 +245,7 @@ def build_strategist_report(account_context: dict) -> dict:
         "3 queries). Otherwise skip search and write the report directly.\n\n"
         "Produce the strategist report per the schema in your system prompt. "
         "STRICT JSON only, no prose, no markdown fences.\n\n"
-        + json.dumps(account_context, indent=2, default=str)
+        + json.dumps(account_context, separators=(",", ":"), default=str)
     )
 
     raw, stop_reason = _strategist_call(client, user_message, max_tokens=16000)
