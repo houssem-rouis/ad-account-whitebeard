@@ -209,7 +209,7 @@
       </thead>
       <tbody>
         {% for row in campaign_rows %}
-        <tr>
+        <tr{% if loop.index > 5 %} class="leaderboard-extra" hidden{% endif %}>
           <td class="fw-semibold">{{ row.name }}</td>
           <td class="text-muted small d-none d-md-table-cell">{{ row.account_name }}</td>
           <td class="text-end money" data-usd="{{ row.spend }}">${{ '%.2f' | format(row.spend) }}</td>
@@ -223,6 +223,13 @@
       </tbody>
     </table>
   </div>
+  {% if campaign_rows|length > 5 %}
+  <div class="text-center mt-3">
+    <button type="button" class="btn btn-sm btn-outline-secondary js-show-more" data-target="campaign">
+      Show {{ campaign_rows|length - 5 }} more
+    </button>
+  </div>
+  {% endif %}
   {% else %}
   <div class="empty-state mb-0">
     <strong>No campaigns</strong>
@@ -239,7 +246,7 @@
   {% if creative_rows %}
   <div class="creative-grid">
     {% for ad in creative_rows %}
-    <a class="creative-tile" href="{{ url_for('ad_detail', ad_id=ad.id) }}">
+    <a class="creative-tile{% if loop.index > 5 %} creative-extra{% endif %}"{% if loop.index > 5 %} hidden{% endif %} href="{{ url_for('ad_detail', ad_id=ad.id) }}">
       {% set thumb = ad.thumbnail_url or ad.image_url %}
       <div class="creative-tile-media">
         {% if thumb %}<img src="{{ thumb }}" alt="">{% else %}<span class="creative-tile-placeholder">No preview</span>{% endif %}
@@ -256,6 +263,13 @@
     </a>
     {% endfor %}
   </div>
+  {% if creative_rows|length > 5 %}
+  <div class="text-center mt-3">
+    <button type="button" class="btn btn-sm btn-outline-secondary js-show-more" data-target="creative">
+      Show {{ creative_rows|length - 5 }} more
+    </button>
+  </div>
+  {% endif %}
   {% else %}
   <div class="empty-state mb-0">
     <strong>No creatives</strong>
@@ -961,6 +975,17 @@
     setBtnLoading(true);
     poll();
   }
+})();
+
+(function () {
+  document.querySelectorAll('.js-show-more').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      const target = btn.dataset.target;
+      const selector = target === 'creative' ? '.creative-extra' : '.leaderboard-extra';
+      document.querySelectorAll(selector).forEach(function (el) { el.hidden = false; });
+      btn.remove();
+    });
+  });
 })();
 </script>
 {% endblock %}

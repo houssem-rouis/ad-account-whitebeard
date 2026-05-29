@@ -708,11 +708,12 @@ def _estimate_report_calls(account_id):
     total_claude = claude_audit_calls + claude_summary_calls
 
     # Cost model: Whisper $0.006/min (~30s avg = $0.003) + Sonnet
-    # ~$0.005/audit + ~$0.05 for the summary (longer output).
+    # ~$0.005/audit + ~$0.10 for the summary (longer output + up to 3 Anthropic
+    # web_search calls @ $0.01 each for the research-augmented strategist).
     est_cost = round(
         whisper_calls * 0.003
         + claude_audit_calls * 0.005
-        + claude_summary_calls * 0.05,
+        + claude_summary_calls * 0.10,
         3,
     )
 
@@ -1168,6 +1169,66 @@ def accounts():
     return render_template("accounts.html", accounts=accounts_data.values())
 
 
+def _overlay_ad_metrics_for_range(ads, account, date_preset):
+    """Replace each ad's snapshot metrics with Meta ad-level numbers for
+    `date_preset`. Ads that returned no row for the period get zeroed metrics
+    plus `_range_has_data = False` so the caller can hide them from the table.
+
+    Returns (overlaid_ads, ok) — `ok` is False when the account isn't connected
+    so we can't query Meta; in that case the snapshot data is returned as-is.
+    """
+    if not account.get("meta_connected") or not account.get("meta_access_token"):
+        return ads, False
+    token = get_account_token(account)
+    meta_account_id = account.get("meta_account_id") or account.get("id")
+    currency = (account.get("meta_currency") or "USD").upper()
+    usd_rate = fx_rate(currency)
+    rows = fetch_meta_account_insights(
+        access_token=token,
+        account_id=meta_account_id,
+        breakdowns=None,
+        time_increment=None,
+        date_preset=date_preset,
+        currency=currency,
+        usd_rate=usd_rate,
+        level="ad",
+    )
+    by_ext = {str(row.get("ad_id") or ""): row for row in rows}
+
+    overlaid = []
+    for ad in ads:
+        ext = str(ad.get("external_id") or (ad.get("id") or "").replace("fb-", ""))
+        row = by_ext.get(ext)
+        out = dict(ad)
+        if row:
+            m = insights_mod._row_metrics(row)
+            spend_native = round(m["spend"] / usd_rate, 2) if usd_rate else 0.0
+            revenue_native = round(m["revenue"] / usd_rate, 2) if usd_rate else 0.0
+            out["spend_usd"] = round(m["spend"], 2)
+            out["spend"] = spend_native
+            out["revenue_usd"] = round(m["revenue"], 2)
+            out["revenue"] = revenue_native
+            out["roas"] = m["roas"]
+            out["clicks"] = m["clicks"]
+            out["impressions"] = m["impressions"]
+            out["purchases"] = m["purchases"]
+            out["ctr"] = m["ctr"]
+            out["cpc"] = round(spend_native / m["clicks"], 2) if m["clicks"] else 0.0
+            out["cpc_usd"] = round(m["spend"] / m["clicks"], 2) if m["clicks"] else 0.0
+            out["roi"] = round((m["roas"] - 1) * 100, 1) if m["roas"] else 0.0
+            out["_range_has_data"] = True
+        else:
+            for k in ("spend_usd", "spend", "revenue_usd", "revenue", "roas",
+                     "ctr", "cpc", "cpc_usd", "roi"):
+                out[k] = 0.0
+            out["clicks"] = 0
+            out["impressions"] = 0
+            out["purchases"] = 0
+            out["_range_has_data"] = False
+        overlaid.append(out)
+    return overlaid, True
+
+
 @app.route("/accounts/<account_id>", methods=["GET"])
 @login_required
 def account_detail(account_id):
@@ -1190,13 +1251,30 @@ def account_detail(account_id):
     min_spend = parse_numeric(request.args.get("min_spend"), 0.0)
     max_spend = parse_numeric(request.args.get("max_spend"), 99999999.0)
 
+    # `range` query param toggles a Meta-live overlay over the snapshot data,
+    # so the user can compare today / yesterday / last 7 days / etc. without
+    # losing the snapshot view. Empty string = snapshot (existing behavior).
+    range_param = (request.args.get("range") or "").strip()
+    date_preset = insights_mod.resolve_range(range_param) if range_param else None
+
     ads_data = FileStore.load("ads", {})
     account_ads = enrich_ads(
         ad for ad in ads_data.values() if ad.get("account_id") == account_id
     )
+
+    range_live = False
+    if date_preset:
+        account_ads, range_live = _overlay_ad_metrics_for_range(
+            account_ads, account, date_preset,
+        )
+
     filtered_ads = []
 
     def is_active(ad):
+        # Historical view: an ad is "active in the period" if it spent money in
+        # the period — regardless of whether it's running now.
+        if range_live:
+            return bool(ad.get("_range_has_data"))
         return (
             str(ad.get("status", "")).lower() == "running"
             or str(ad.get("facebook_status", "")).upper() == "ACTIVE"
@@ -1319,6 +1397,9 @@ def account_detail(account_id):
             "min_spend": request.args.get("min_spend", ""),
             "max_spend": request.args.get("max_spend", ""),
         },
+        date_ranges=insights_mod.DATE_RANGES,
+        date_preset=date_preset,
+        range_live=range_live,
         account_sync_url=account_sync_url,
         account_auto_sync=account["sync_due"],
     )

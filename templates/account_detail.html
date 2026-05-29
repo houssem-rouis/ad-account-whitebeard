@@ -53,10 +53,38 @@
   </div>
 </div>
 
+<div class="card p-3 mb-4">
+  <form method="get" class="d-flex flex-wrap align-items-center gap-3">
+    <div class="d-flex align-items-center gap-2">
+      <label class="form-label mb-0 me-2" for="range">Date range</label>
+      <select id="range" name="range" class="form-select form-select-sm" onchange="this.form.submit()" style="min-width:180px">
+        <option value="" {% if not date_preset %}selected{% endif %}>Last sync snapshot</option>
+        {% for value, label in date_ranges %}
+        <option value="{{ value }}" {% if value == date_preset %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    {# Preserve other URL filters when switching range #}
+    {% if filters.status %}<input type="hidden" name="status" value="{{ filters.status }}">{% endif %}
+    {% if filters.search %}<input type="hidden" name="search" value="{{ filters.search }}">{% endif %}
+    {% if filters.min_spend %}<input type="hidden" name="min_spend" value="{{ filters.min_spend }}">{% endif %}
+    {% if filters.max_spend %}<input type="hidden" name="max_spend" value="{{ filters.max_spend }}">{% endif %}
+    <span class="text-faint small">
+      {% if range_live %}
+        Live from Meta for the selected range (cached 10 min). The table shows only ads that delivered in this period; status pills still reflect current state.
+      {% elif date_preset %}
+        Connect this account to Meta to query a live date range. Falling back to the last sync snapshot.
+      {% else %}
+        Showing the last sync snapshot. Pick a date range above to query Meta live (e.g. how every ad performed yesterday).
+      {% endif %}
+    </span>
+  </form>
+</div>
+
 <div class="card p-4 mb-4">
   <div class="summary-grid" style="grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));">
     <div>
-      <div class="label">Active ads</div>
+      <div class="label">{% if range_live %}Ads with delivery{% else %}Active ads{% endif %}</div>
       <div class="value">{{ summary.count }}</div>
     </div>
     <div>

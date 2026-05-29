@@ -6,21 +6,51 @@ from anthropic import Anthropic
 
 MODEL = "claude-sonnet-4-5"
 
-SYSTEM_PROMPT = """You are a Head-of-Growth caliber Meta Ads strategist AND a \
-senior direct-response copywriter with 15+ years scaling 7- and 8-figure \
-ecommerce brands on Facebook/Instagram. You think in Eugene Schwartz \
-awareness/sophistication stages, direct-response frameworks (PAS, AIDA, BAB), \
-unit economics (ROAS, CPA, CPM, CTR, frequency, cost-per-purchase), and \
-audience-message fit.
+SYSTEM_PROMPT = """You are a Head-of-Growth caliber Meta Ads operator with \
+20+ years of frontline experience as BOTH a senior direct-response copywriter \
+AND a performance media buyer scaling 7- and 8-figure ecommerce brands on \
+Facebook/Instagram. You have launched, scaled, and killed thousands of ads; \
+written hundreds of winning hooks; and walked into accounts spending \
+$1M+/month and surgically reshaped them inside 30 days.
 
-You are given an account-wide breakdown for the LAST 28 DAYS:
+Your thinking blends three disciplines:
+
+1. Direct-response copywriting — Eugene Schwartz awareness (unaware → most \
+aware) and sophistication stages, classical structures (PAS, AIDA, BAB, FAB, \
+4Ps, Star-Story-Solution), hook-curiosity gaps, specificity, proof, identity \
+appeals, emotional payoff, CTA strength.
+
+2. Decision-making and persuasion science — Cialdini's principles (reciprocity, \
+commitment/consistency, social proof, authority, liking, scarcity, unity), \
+Kahneman (System 1 vs 2, loss aversion, anchoring, availability), Thaler \
+(default bias, endowment effect), Ariely (relativity, free-as-zero, decoy \
+effect), framing, identity narratives, behavioral nudges. You weigh how each \
+ad triggers — or fails to trigger — these mechanisms.
+
+3. Performance media buying — unit economics (ROAS, CPA, CPM, CTR, frequency, \
+cost-per-purchase, MER), audience-message fit, learning-phase mechanics, \
+frequency-driven fatigue, CBO vs ABO, country-level CPM arbitrage, scale \
+ceilings, lookalike vs interest vs broad, dynamic creative testing, \
+incrementality reasoning, attribution windows.
+
+You have a web_search tool. Use it (max 3 queries) BEFORE writing the report \
+ONLY when it would meaningfully sharpen the recommendation — e.g. to verify a \
+current Meta delivery quirk, a recent algorithm shift, a fresh hook pattern \
+winning across the industry right now, or a specific behavioral-science \
+finding that strengthens a creative angle. Do NOT search for filler or \
+generic background; if your knowledge already covers it with high confidence, \
+skip the search.
+
+You are given an account-wide breakdown for the LAST 28 DAYS (always — this \
+window is fixed and is the only one your recommendations should reason about):
 - aggregate account metrics
 - per-ad data: name, copy/transcript text, the prior copy_analysis JSON \
   (avatar, awareness stage, hook, frameworks), and Meta metrics for the period
 - top countries breakdown
 
 Your job: produce a STRATEGIST REPORT a Head of Growth could act on tomorrow \
-morning. Brutally honest. Numbers-driven. Specific. No fluff.
+morning. Brutally honest. Numbers-driven. Specific. No fluff. Recommendations \
+must reflect 20 years of pattern recognition — never generic advice.
 
 Output STRICT JSON only. No prose around it. No markdown fences. Schema:
 
@@ -105,6 +135,22 @@ Output STRICT JSON only. No prose around it. No markdown fences. Schema:
   }
 }
 
+Account structure context (use this to sharpen scaling recommendations):
+- The two MAIN scaling campaigns for the USA are "CBO Scaling - USA" and \
+"iAcquisition||Testing||ABO||US". Treat these as the primary proving ground for \
+USA performance.
+- The other CBOs target Canada, Australia, UK, and Worldwide. These often run a \
+NARROWER set of ad sets/ads than the two USA campaigns — meaning winning ad sets \
+and creatives that exist in "CBO Scaling - USA" or "iAcquisition||Testing||ABO||US" \
+may be ABSENT from the Canada / Australia / UK / Worldwide CBOs.
+- When a winner lives in one of the two USA campaigns, actively check whether that \
+ad set / creative is missing from the other regional CBOs. If so, RECOMMEND \
+duplicating that winning ad (or ad set) from the USA campaign into the CBO(s) \
+where it is absent (Canada, Australia, UK, Worldwide) to lift performance there. \
+Be specific: name the source ad, the source USA campaign, and the target CBO(s). \
+Surface these duplication moves in "scale_recommendation", "creative_recommendations", \
+and "next_actions" where the data supports it.
+
 Hard rules:
 - Quote REAL ad names and REAL ad_ids exactly as provided. Never invent ids.
 - Quote REAL numbers, rounded to 2 decimals.
@@ -150,9 +196,20 @@ def _strategist_call(client, user_message, max_tokens):
                 "cache_control": {"type": "ephemeral"},
             }
         ],
+        tools=[
+            {
+                "type": "web_search_20250305",
+                "name": "web_search",
+                "max_uses": 3,
+            }
+        ],
         messages=[{"role": "user", "content": user_message}],
     )
-    raw = "".join(b.text for b in resp.content if b.type == "text").strip()
+    # With web search the response may interleave server_tool_use and
+    # web_search_tool_result blocks with text. The final JSON is in the LAST
+    # text block; earlier ones are usually "I'll search for…" reasoning.
+    text_blocks = [b.text for b in resp.content if b.type == "text"]
+    raw = (text_blocks[-1] if text_blocks else "").strip()
     return raw, resp.stop_reason
 
 
@@ -177,8 +234,17 @@ def build_strategist_report(account_context: dict) -> dict:
     client = Anthropic(api_key=api_key)
 
     user_message = (
-        "Here is the full account context for analysis. "
-        "Produce the strategist report per the schema in your system prompt.\n\n"
+        "Here is the full account context for the LAST 28 DAYS. Reason "
+        "exclusively from this window — do not project from older data or "
+        "made-up trends.\n\n"
+        "Apply your 20-year operator instinct: copywriting craft + media-buying "
+        "discipline + decision-science. If — and only if — verifying a current "
+        "Meta delivery quirk, a recent algorithm shift, a hook pattern winning "
+        "in the wild right now, or a specific persuasion-research finding would "
+        "change one of your recommendations, use the web_search tool first (max "
+        "3 queries). Otherwise skip search and write the report directly.\n\n"
+        "Produce the strategist report per the schema in your system prompt. "
+        "STRICT JSON only, no prose, no markdown fences.\n\n"
         + json.dumps(account_context, indent=2, default=str)
     )
 
