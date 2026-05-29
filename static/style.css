@@ -660,14 +660,59 @@ html[data-theme='dark'] .roas-pill.is-disaster     { color: #fca5a5; background:
 }
 
 .sync-loader-card {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.85rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
   border-radius: var(--radius-md);
   padding: 0.85rem 1.1rem;
   background: var(--color-surface);
   box-shadow: var(--shadow-lg);
   color: var(--color-text);
+  max-width: 22rem;
+}
+
+.sync-loader-head {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.85rem;
+}
+
+.sync-loader-quote {
+  border-top: 1px solid var(--color-border);
+  padding-top: 0.7rem;
+  font-size: 0.85rem;
+  line-height: 1.4;
+  color: var(--color-text-muted, var(--color-text));
+  min-height: 2.6em;
+  opacity: 0;
+  transition: opacity 0.5s ease;
+}
+
+.sync-loader-quote.is-visible {
+  opacity: 1;
+}
+
+.sync-loader-quote.has-image {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+}
+
+.sync-loader-quote .sync-loader-quote-img {
+  flex: 0 0 auto;
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--color-border);
+}
+
+.sync-loader-quote .sync-loader-quote-author {
+  display: block;
+  margin-top: 0.2rem;
+  font-size: 0.78rem;
+  font-style: normal;
+  opacity: 0.7;
 }
 
 /* ---------------------------------------------------------------------------

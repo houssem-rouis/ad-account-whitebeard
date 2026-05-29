@@ -50,7 +50,16 @@
               </span>
               <span class="text-faint small">{{ account.provider }}</span>
             </div>
-            <h6 class="mb-1 fw-semibold">{{ account.name }}</h6>
+            <div class="d-flex align-items-center gap-2 mb-1">
+              <h6 class="mb-0 fw-semibold text-truncate" data-account-name="{{ account.id }}">{{ account.name }}</h6>
+              {% if current_user.is_admin %}
+              <button type="button" class="btn btn-link btn-sm p-0 text-faint account-rename-btn"
+                      data-account-id="{{ account.id }}"
+                      data-account-name="{{ account.name }}"
+                      title="Rename account"
+                      style="line-height:1;">✎</button>
+              {% endif %}
+            </div>
             <p class="text-muted small mb-3">
               {% if account.meta_last_synced %}
                 Synced <span class="time-since" data-iso="{{ account.meta_last_synced }}">{{ account.meta_last_synced }}</span>
@@ -75,4 +84,31 @@
     </div>
   </div>
 </div>
+
+<script>
+document.addEventListener('click', function (e) {
+  const btn = e.target.closest('.account-rename-btn');
+  if (!btn) return;
+  e.preventDefault();
+  const accountId = btn.dataset.accountId;
+  const current = btn.dataset.accountName || '';
+  const next = window.prompt('Rename ad account:', current);
+  if (next === null) return;
+  const trimmed = next.trim();
+  if (!trimmed || trimmed === current) return;
+  const form = new FormData();
+  form.append('name', trimmed);
+  fetch('/accounts/' + accountId + '/rename', {
+    method: 'POST',
+    credentials: 'same-origin',
+    body: form,
+  })
+    .then(r => r.json())
+    .then(data => {
+      if (!data.success) { alert(data.message || 'Could not rename.'); return; }
+      window.location.reload();
+    })
+    .catch(err => alert(String(err)));
+});
+</script>
 {% endblock %}

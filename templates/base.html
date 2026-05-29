@@ -124,11 +124,14 @@
 
     <div id="sync-loader-overlay" class="sync-loader d-none" aria-hidden="true">
       <div class="sync-loader-card">
-        <div class="spinner-border text-primary" role="status" style="width:1.25rem;height:1.25rem;"></div>
-        <div>
-          <strong>Syncing ads</strong>
-          <div class="small text-muted">Fetching the latest data from Meta…</div>
+        <div class="sync-loader-head">
+          <div class="spinner-border text-primary" role="status" style="width:1.25rem;height:1.25rem;"></div>
+          <div>
+            <strong>Syncing ads</strong>
+            <div class="small text-muted">Fetching the latest data from Meta…</div>
+          </div>
         </div>
+        <div class="sync-loader-quote" id="sync-loader-quote" aria-live="polite"></div>
       </div>
     </div>
 
