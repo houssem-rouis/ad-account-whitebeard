@@ -18,6 +18,8 @@ from treatment import fx_rate, extract_purchases
 EDITORS = [
     ("Katrina", "kat"),
     ("Anthony", "anthony"),
+    ("Moiez", "moiez"),
+    ("Fasih", "fasih"),
 ]
 
 EDITOR_PATTERNS = [
