@@ -265,25 +265,28 @@ def fetch_meta_account_insights(
     return rows
 
 
-def _extract_creative_link(creative):
-    """Pull the destination (landing page) URL out of a creative.
+def _creative_direct_url(creative):
+    """Pull a website destination URL straight out of a creative, if present.
 
-    Meta stores the link in different places depending on the ad format, so we
-    probe each known location in priority order. Returns None if none carry a
-    URL (e.g. lead/engagement ads with no website destination).
+    Covers standard link ads, video CTA links, carousel child attachments and
+    dynamic-creative (asset_feed_spec) website URLs. Returns None when the
+    creative carries no inline URL — e.g. page-post-backed ads (object_story_id)
+    or catalog ads, which are resolved separately.
     """
-    for spec_key in ("object_story_spec", "effective_object_story_spec"):
-        spec = creative.get(spec_key) or {}
-        link_data = spec.get("link_data") or {}
-        if link_data.get("link"):
-            return link_data["link"]
-        video_data = spec.get("video_data") or {}
-        cta_value = (video_data.get("call_to_action") or {}).get("value") or {}
-        if cta_value.get("link"):
-            return cta_value["link"]
-        template_data = spec.get("template_data") or {}
-        if template_data.get("link"):
-            return template_data["link"]
+    spec = creative.get("object_story_spec") or {}
+    link_data = spec.get("link_data") or {}
+    if link_data.get("link"):
+        return link_data["link"]
+    for child in link_data.get("child_attachments") or []:
+        if child.get("link"):
+            return child["link"]
+    video_data = spec.get("video_data") or {}
+    cta_value = (video_data.get("call_to_action") or {}).get("value") or {}
+    if cta_value.get("link"):
+        return cta_value["link"]
+    template_data = spec.get("template_data") or {}
+    if template_data.get("link"):
+        return template_data["link"]
     feed = creative.get("asset_feed_spec") or {}
     for link_url in feed.get("link_urls") or []:
         if link_url.get("website_url"):
@@ -291,12 +294,57 @@ def _extract_creative_link(creative):
     return None
 
 
+def _creative_product_id(creative):
+    """Return the catalog product id an ad points at, if it's a catalog/shop ad.
+
+    These ads (asset_feed_spec.onsite_destinations[].details_page_product_id)
+    carry no inline URL; the website URL lives on the catalog product and is
+    resolved via `_fetch_product_urls`.
+    """
+    feed = creative.get("asset_feed_spec") or {}
+    for dest in feed.get("onsite_destinations") or []:
+        if dest.get("details_page_product_id"):
+            return dest["details_page_product_id"]
+    return None
+
+
+def _fetch_product_urls(access_token, product_ids):
+    """Resolve catalog product ids to their website URLs via the batch-by-ids
+    endpoint (up to 50 ids per call). Unresolvable ids are simply omitted.
+    """
+    out = {}
+    ids = [pid for pid in product_ids if pid]
+    for start in range(0, len(ids), 50):
+        chunk = ids[start:start + 50]
+        try:
+            response = requests.get(
+                GRAPH_BASE,
+                params={
+                    "access_token": access_token,
+                    "ids": ",".join(chunk),
+                    "fields": "url",
+                },
+                timeout=25,
+            )
+            if response.status_code != 200:
+                continue
+            data = response.json() or {}
+            for pid, obj in data.items():
+                if isinstance(obj, dict) and obj.get("url"):
+                    out[pid] = obj["url"]
+        except requests.RequestException:
+            continue
+    return out
+
+
 def fetch_meta_ad_landing_pages(access_token, account_id):
     """Return a map of ``ad_id -> landing page URL`` for an ad account.
 
     Landing page is a property of the ad's creative, not an insights breakdown,
     so we fetch it separately and let callers join it onto level=ad insight
-    rows. Cached for CACHE_TTL_SECONDS like the insights calls.
+    rows. Ads whose destination can't be resolved (e.g. page-post links that
+    need page permissions we don't hold) are omitted, so callers exclude them
+    from the stats rather than guessing. Cached for CACHE_TTL_SECONDS.
     """
     if not access_token or not account_id:
         return {}
@@ -310,10 +358,13 @@ def fetch_meta_ad_landing_pages(access_token, account_id):
         return cached
 
     url_map = {}
+    pending_products = {}  # ad_id -> catalog product id awaiting URL resolution
+    product_ids = set()
+
     url = f"{GRAPH_BASE}/{account_id}/ads"
     params = {
         "access_token": access_token,
-        "fields": "id,creative{object_story_spec,effective_object_story_spec,asset_feed_spec}",
+        "fields": "id,creative{object_story_spec,asset_feed_spec}",
         "limit": 200,
     }
     try:
@@ -325,14 +376,30 @@ def fetch_meta_ad_landing_pages(access_token, account_id):
             if "error" in data:
                 break
             for item in data.get("data", []):
-                link = _extract_creative_link(item.get("creative") or {})
-                if link and item.get("id"):
-                    url_map[item["id"]] = link
+                ad_id = item.get("id")
+                if not ad_id:
+                    continue
+                creative = item.get("creative") or {}
+                direct = _creative_direct_url(creative)
+                if direct:
+                    url_map[ad_id] = direct
+                    continue
+                product_id = _creative_product_id(creative)
+                if product_id:
+                    pending_products[ad_id] = product_id
+                    product_ids.add(product_id)
             paging = data.get("paging", {})
             url = paging.get("next")
             params = None
     except requests.RequestException:
         pass
+
+    if product_ids:
+        product_urls = _fetch_product_urls(access_token, product_ids)
+        for ad_id, product_id in pending_products.items():
+            resolved = product_urls.get(product_id)
+            if resolved:
+                url_map[ad_id] = resolved
 
     _cache_set(cache_key, url_map)
     return url_map

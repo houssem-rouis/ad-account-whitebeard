@@ -9,7 +9,7 @@ combined here across accounts.
 import re
 from collections import defaultdict
 from statistics import median
-from urllib.parse import urlparse
+from urllib.parse import urlparse, unquote
 
 from treatment import fx_rate, extract_purchases
 
@@ -526,7 +526,7 @@ def normalize_landing_path(url):
     if not url:
         return None
     try:
-        path = urlparse(url.strip()).path or "/"
+        path = unquote(urlparse(url.strip()).path or "/")
     except ValueError:
         return None
     if len(path) > 1:
@@ -539,15 +539,18 @@ def aggregate_landing_pages(rows, url_map):
 
     ``rows`` are FX-converted ad-level insight rows (one per ad) that respect
     the selected date range. ``url_map`` maps ad_id -> destination URL. Rows
-    whose ad has no resolvable URL are bucketed under "(unknown)". Returns rows
-    carrying spend, cpc, cpm, ctr and roas per path, sorted by spend.
+    whose ad has no resolvable landing page are excluded entirely (not counted)
+    rather than guessed at. Returns rows carrying spend, cpc, cpm, ctr and roas
+    per path, sorted by spend.
     """
     grouped = defaultdict(lambda: {
         "spend": 0.0, "revenue": 0.0, "clicks": 0, "impressions": 0,
         "purchases": 0,
     })
     for row in rows:
-        path = normalize_landing_path(url_map.get(row.get("ad_id"))) or "(unknown)"
+        path = normalize_landing_path(url_map.get(row.get("ad_id")))
+        if not path:
+            continue
         metrics = _row_metrics(row)
         bucket = grouped[path]
         bucket["spend"] += metrics["spend"]
