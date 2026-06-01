@@ -1392,6 +1392,19 @@ def account_detail(account_id):
         for country, value in (ad.get("roas_by_country") or {}).items():
             country_roas.setdefault(country, []).append(parse_numeric(value, 0.0))
 
+    # Sort every level by spend (desc) so the biggest spenders surface first:
+    # ads within each ad set, ad sets within each campaign, and campaigns overall.
+    for campaign in campaign_groups.values():
+        for adset in campaign["adsets"].values():
+            adset["ads"].sort(key=lambda a: a.get("spend_usd", 0), reverse=True)
+        campaign["adsets"] = dict(
+            sorted(
+                campaign["adsets"].items(),
+                key=lambda kv: kv[1]["spend"],
+                reverse=True,
+            )
+        )
+
     summary = {
         "count": len(active_ads),
         "spend": total_spend,
@@ -1408,7 +1421,9 @@ def account_detail(account_id):
             ]
         )
         or "ROAS by country unavailable",
-        "campaigns": list(campaign_groups.values()),
+        "campaigns": sorted(
+            campaign_groups.values(), key=lambda c: c["spend"], reverse=True
+        ),
     }
 
     competitors_data = FileStore.load("competitors", {})
