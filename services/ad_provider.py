@@ -265,6 +265,79 @@ def fetch_meta_account_insights(
     return rows
 
 
+def _extract_creative_link(creative):
+    """Pull the destination (landing page) URL out of a creative.
+
+    Meta stores the link in different places depending on the ad format, so we
+    probe each known location in priority order. Returns None if none carry a
+    URL (e.g. lead/engagement ads with no website destination).
+    """
+    for spec_key in ("object_story_spec", "effective_object_story_spec"):
+        spec = creative.get(spec_key) or {}
+        link_data = spec.get("link_data") or {}
+        if link_data.get("link"):
+            return link_data["link"]
+        video_data = spec.get("video_data") or {}
+        cta_value = (video_data.get("call_to_action") or {}).get("value") or {}
+        if cta_value.get("link"):
+            return cta_value["link"]
+        template_data = spec.get("template_data") or {}
+        if template_data.get("link"):
+            return template_data["link"]
+    feed = creative.get("asset_feed_spec") or {}
+    for link_url in feed.get("link_urls") or []:
+        if link_url.get("website_url"):
+            return link_url["website_url"]
+    return None
+
+
+def fetch_meta_ad_landing_pages(access_token, account_id):
+    """Return a map of ``ad_id -> landing page URL`` for an ad account.
+
+    Landing page is a property of the ad's creative, not an insights breakdown,
+    so we fetch it separately and let callers join it onto level=ad insight
+    rows. Cached for CACHE_TTL_SECONDS like the insights calls.
+    """
+    if not access_token or not account_id:
+        return {}
+
+    if not account_id.startswith("act_"):
+        account_id = f"act_{account_id}"
+
+    cache_key = ("landing_pages", account_id)
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached
+
+    url_map = {}
+    url = f"{GRAPH_BASE}/{account_id}/ads"
+    params = {
+        "access_token": access_token,
+        "fields": "id,creative{object_story_spec,effective_object_story_spec,asset_feed_spec}",
+        "limit": 200,
+    }
+    try:
+        while url:
+            response = requests.get(url, params=params, timeout=25)
+            if response.status_code != 200:
+                break
+            data = response.json() or {}
+            if "error" in data:
+                break
+            for item in data.get("data", []):
+                link = _extract_creative_link(item.get("creative") or {})
+                if link and item.get("id"):
+                    url_map[item["id"]] = link
+            paging = data.get("paging", {})
+            url = paging.get("next")
+            params = None
+    except requests.RequestException:
+        pass
+
+    _cache_set(cache_key, url_map)
+    return url_map
+
+
 def fetch_meta_video_media(video_id: str, access_token: str):
     """Resolve a Meta video's playable source URL and poster picture.
 

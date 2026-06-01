@@ -24,6 +24,7 @@ from services.ad_provider import (
     connect_meta_account,
     fetch_meta_ads,
     fetch_meta_account_insights,
+    fetch_meta_ad_landing_pages,
     fetch_meta_video_media,
 )
 from analysis import analyze_ad_text
@@ -1647,6 +1648,28 @@ def _fetch_ad_level_rows(accounts_map, date_preset):
     return all_rows
 
 
+def _fetch_landing_page_map(accounts_map):
+    """Build a combined ad_id -> landing-page-URL map across all connected
+    accounts in parallel. Ad IDs are globally unique, so a single merged map is
+    safe to join onto the ad-level insight rows.
+    """
+    url_map = {}
+    if not accounts_map:
+        return url_map
+
+    def run(item):
+        account_id, account = item
+        token = get_account_token(account)
+        meta_account_id = account.get("meta_account_id") or account_id
+        return fetch_meta_ad_landing_pages(token, meta_account_id)
+
+    items = list(accounts_map.items())
+    with ThreadPoolExecutor(max_workers=min(8, len(items) or 1)) as ex:
+        for partial in ex.map(run, items):
+            url_map.update(partial)
+    return url_map
+
+
 def _fetch_breakdowns_parallel(accounts_map, date_preset):
     """Run all breakdown fetches for all connected accounts in parallel.
 
@@ -1739,6 +1762,8 @@ def _build_analytics_context(scope_account_id=None):
         editor_rows = insights_mod.editor_breakdown_from_insight_rows(ad_level_rows)
     else:
         editor_rows = insights_mod.editor_breakdown(ads)
+    landing_page_map = _fetch_landing_page_map(connected)
+    landing_pages = insights_mod.aggregate_landing_pages(ad_level_rows, landing_page_map)
     outliers = insights_mod.detect_outliers(ads, accounts, account_rows)
 
     country = insights_mod.aggregate_country(breakdowns["country"])
@@ -1777,6 +1802,7 @@ def _build_analytics_context(scope_account_id=None):
         "status_mix": status_data,
         "creative_type_mix": creative_type_data,
         "editor_rows": editor_rows,
+        "landing_pages": landing_pages,
         "outliers": outliers,
         "country": country,
         "placement": placement,

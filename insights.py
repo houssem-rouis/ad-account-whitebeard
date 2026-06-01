@@ -9,6 +9,7 @@ combined here across accounts.
 import re
 from collections import defaultdict
 from statistics import median
+from urllib.parse import urlparse
 
 from treatment import fx_rate, extract_purchases
 
@@ -513,6 +514,69 @@ def aggregate_hourly(rows):
         row["hour"] = row.pop("hourly_stats_aggregated_by_advertiser_time_zone", "")
     series.sort(key=lambda r: r.get("hour", ""))
     return series
+
+
+def normalize_landing_path(url):
+    """Reduce a full destination URL to just its path, dropping host and params.
+
+    e.g. ``https://gentlepawsupplies.com/pages/gpcollars-v1?utm_source=fb``
+    becomes ``/pages/gpcollars-v1``. Returns None when there's no usable URL so
+    callers can bucket those rows separately.
+    """
+    if not url:
+        return None
+    try:
+        path = urlparse(url.strip()).path or "/"
+    except ValueError:
+        return None
+    if len(path) > 1:
+        path = path.rstrip("/") or "/"
+    return path
+
+
+def aggregate_landing_pages(rows, url_map):
+    """Group level=ad insight rows by landing-page path.
+
+    ``rows`` are FX-converted ad-level insight rows (one per ad) that respect
+    the selected date range. ``url_map`` maps ad_id -> destination URL. Rows
+    whose ad has no resolvable URL are bucketed under "(unknown)". Returns rows
+    carrying spend, cpc, cpm, ctr and roas per path, sorted by spend.
+    """
+    grouped = defaultdict(lambda: {
+        "spend": 0.0, "revenue": 0.0, "clicks": 0, "impressions": 0,
+        "purchases": 0,
+    })
+    for row in rows:
+        path = normalize_landing_path(url_map.get(row.get("ad_id"))) or "(unknown)"
+        metrics = _row_metrics(row)
+        bucket = grouped[path]
+        bucket["spend"] += metrics["spend"]
+        bucket["revenue"] += metrics["revenue"]
+        bucket["clicks"] += metrics["clicks"]
+        bucket["impressions"] += metrics["impressions"]
+        bucket["purchases"] += metrics["purchases"]
+
+    out = []
+    for path, bucket in grouped.items():
+        spend = bucket["spend"]
+        revenue = bucket["revenue"]
+        clicks = bucket["clicks"]
+        impressions = bucket["impressions"]
+        out.append({
+            "path": path,
+            "label": path,
+            "spend": spend,
+            "revenue": revenue,
+            "roas": round(revenue / spend, 2) if spend else 0,
+            "cpc": round(spend / clicks, 2) if clicks else 0,
+            "cpm": round(spend / impressions * 1000, 2) if impressions else 0,
+            "ctr": round(clicks / impressions * 100, 2) if impressions else 0,
+            "clicks": clicks,
+            "impressions": impressions,
+            "purchases": bucket["purchases"],
+        })
+    out.sort(key=lambda r: r["spend"], reverse=True)
+    return out
 
 
 # Convenience for the demographic heatmap: turn flat rows into a matrix.

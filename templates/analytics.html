@@ -452,6 +452,62 @@
 </div>
 
 <!-- ============================================================ -->
+<!-- LANDING PAGES                                                 -->
+<!-- ============================================================ -->
+<div class="card p-4 mb-4">
+  <div class="d-flex align-items-center justify-content-between mb-3">
+    <div>
+      <h5 class="fw-semibold mb-1">By landing page</h5>
+      <p class="text-muted small mb-0">Spend and efficiency per destination URL path (query params stripped, e.g. <code>/pages/gpcollars-v1</code>) for the selected date range. Live from Meta, cached 10 min.</p>
+    </div>
+    <span class="text-faint small">{{ landing_pages|length }} page{{ '' if landing_pages|length == 1 else 's' }}</span>
+  </div>
+  {% if landing_pages %}
+  <canvas id="chartLandingPage" height="160"
+          data-labels='{{ landing_pages[:12] | map(attribute="label") | list | tojson | safe }}'
+          data-spend='{{ landing_pages[:12] | map(attribute="spend") | list | tojson | safe }}'></canvas>
+  <div class="table-responsive mt-3">
+    <table class="table align-middle mb-0 sortable">
+      <thead>
+        <tr>
+          <th>Landing page</th>
+          <th class="text-end">Spend</th>
+          <th class="text-end">CPC</th>
+          <th class="text-end">CPM</th>
+          <th class="text-end">CTR</th>
+          <th class="text-end">ROAS</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in landing_pages %}
+        <tr{% if loop.index > 8 %} class="landing-extra" hidden{% endif %}>
+          <td class="fw-semibold"><code>{{ row.label }}</code></td>
+          <td class="text-end money" data-usd="{{ row.spend }}">${{ '%.2f' | format(row.spend) }}</td>
+          <td class="text-end money" data-usd="{{ row.cpc }}">${{ '%.2f' | format(row.cpc) }}</td>
+          <td class="text-end money" data-usd="{{ row.cpm }}">${{ '%.2f' | format(row.cpm) }}</td>
+          <td class="text-end">{{ '%.2f' | format(row.ctr) }}%</td>
+          <td class="text-end fw-semibold {% if row.roas >= 2 %}text-success{% elif row.roas < 1 and row.spend > 0 %}text-danger{% endif %}">{{ '%.2f' | format(row.roas) }}x</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% if landing_pages|length > 8 %}
+  <div class="text-center mt-3">
+    <button type="button" class="btn btn-sm btn-outline-secondary js-show-more" data-target="landing">
+      Show {{ landing_pages|length - 8 }} more
+    </button>
+  </div>
+  {% endif %}
+  {% else %}
+  <div class="empty-state mb-0">
+    <strong>No landing page data for this range</strong>
+    Connect a Meta account with website-destination ads and pick a date range with active spend.
+  </div>
+  {% endif %}
+</div>
+
+<!-- ============================================================ -->
 <!-- DEMOGRAPHIC HEATMAP                                           -->
 <!-- ============================================================ -->
 <div class="card p-4 mb-4">
@@ -981,7 +1037,8 @@
   document.querySelectorAll('.js-show-more').forEach(function (btn) {
     btn.addEventListener('click', function () {
       const target = btn.dataset.target;
-      const selector = target === 'creative' ? '.creative-extra' : '.leaderboard-extra';
+      const selectors = { creative: '.creative-extra', landing: '.landing-extra' };
+      const selector = selectors[target] || '.leaderboard-extra';
       document.querySelectorAll(selector).forEach(function (el) { el.hidden = false; });
       btn.remove();
     });

@@ -345,6 +345,7 @@
     buildBarSpend('chartCountry');
     buildBarSpend('chartPlacement');
     buildBarSpend('chartDevice');
+    buildBarSpend('chartLandingPage');
     buildHourly();
     buildScatter();
     colorHeatmap();
