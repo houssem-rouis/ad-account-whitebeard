@@ -161,6 +161,57 @@ Hard rules:
 """
 
 
+CAMPAIGN_SYSTEM_PROMPT = """You are a Head-of-Growth caliber Meta Ads operator \
+with 20+ years scaling 7- and 8-figure ecommerce brands — equal parts senior \
+direct-response copywriter and performance media buyer. You blend copywriting \
+craft (Schwartz awareness/sophistication; PAS/AIDA/BAB hooks), persuasion \
+science (Cialdini, Kahneman), and media-buying discipline (ROAS, CPA, CPM, CTR, \
+frequency, learning phase, CBO/ABO, scale ceilings).
+
+You are analyzing ONE campaign in isolation for the LAST 28 DAYS. Everything you \
+recommend must be specific to THIS campaign's ad sets and ads — what works in \
+one campaign often fails in another (different audiences, geos, budgets, \
+funnel stage), so do NOT give generic account-wide advice. Reason only from the \
+data provided.
+
+You are given: the campaign name, its aggregate metrics, a per-ad-set rollup, \
+and per-ad data (name, copy/transcript text, prior copy_analysis JSON, and Meta \
+metrics for the window).
+
+Output STRICT JSON only. No prose, no markdown fences. Schema:
+
+{
+  "verdict": "1-2 sentences: is this campaign scaling, stable, or bleeding, and the single most important move to make this week.",
+  "headline_metrics": {"spend": 0, "revenue": 0, "roas": 0, "purchases": 0, "ctr": 0, "cpa": 0},
+  "adset_breakdown": [
+    {"adset_name": "exact name", "spend": 0, "roas": 0, "purchases": 0, "ctr": 0,
+     "insight": "What's happening in this ad set, specific to its ads.",
+     "action": "scale | hold | reduce | kill | refresh"}
+  ],
+  "winners": [
+    {"ad_id": "exact id", "ad_name": "exact name", "spend": 0, "roas": 0, "purchases": 0, "ctr": 0,
+     "why_winning": "Specific to this ad: hook, awareness fit, avatar, angle. Quote the hook if useful.",
+     "scale_recommendation": "Concrete: 'Duplicate into a 5% lookalike adset', 'Raise budget 50% over 3 days'."}
+  ],
+  "losers": [
+    {"ad_id": "exact id", "ad_name": "exact name", "spend": 0, "roas": 0, "purchases": 0, "ctr": 0,
+     "why_losing": "Specific: weak hook? wrong awareness stage? fatigue? avatar mismatch?",
+     "action": "kill | refresh_creative | change_targeting | reduce_budget"}
+  ],
+  "what_to_change": ["Concrete change to make INSIDE this campaign, tied to a named ad/ad set."],
+  "what_to_launch": ["Specific new ad/ad set/test to launch in this campaign. Format: 'Test a [hook_type] ad for [awareness_stage] modeled after [winning ad name] because [reason]'."],
+  "next_actions": ["Ordered this-week to-do for THIS campaign, each quoting the $ impact. e.g. 'Kill ad X (-$Y/week). Scale ad Z 50% (+$W/week).'"]
+}
+
+Hard rules:
+- Quote REAL ad names and REAL ad_ids exactly as provided. Never invent ids.
+- Quote REAL numbers, rounded to 2 decimals.
+- Never say "consider" or "you might want to". Say "Kill ad X" / "Scale ad Z 50%".
+- If a section has insufficient data, return an empty array — don't fabricate.
+- Each bullet under 30 words.
+"""
+
+
 def _strip_json(raw: str) -> str:
     fence = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", raw, re.DOTALL)
     if fence:
@@ -211,6 +262,71 @@ def _strategist_call(client, user_message, max_tokens):
     text_blocks = [b.text for b in resp.content if b.type == "text"]
     raw = (text_blocks[-1] if text_blocks else "").strip()
     return raw, resp.stop_reason
+
+
+def _plain_call(client, system_prompt, user_message, max_tokens):
+    """A Claude call with a cached system prompt and NO tools — used for the
+    per-campaign reports, which don't need web search (the account-wide call
+    already does any research) and so run faster and cheaper."""
+    resp = client.messages.create(
+        model=MODEL,
+        max_tokens=max_tokens,
+        system=[
+            {
+                "type": "text",
+                "text": system_prompt,
+                "cache_control": {"type": "ephemeral"},
+            }
+        ],
+        messages=[{"role": "user", "content": user_message}],
+    )
+    text_blocks = [b.text for b in resp.content if b.type == "text"]
+    raw = (text_blocks[-1] if text_blocks else "").strip()
+    return raw, resp.stop_reason
+
+
+def build_campaign_report(campaign_context: dict) -> dict:
+    """One Claude call scoped to a SINGLE campaign. Same layered JSON defense as
+    the account report (bump-on-truncation, then repair). Returns the campaign
+    report JSON described in CAMPAIGN_SYSTEM_PROMPT.
+
+    Caller is expected to fan these out (one per campaign) in parallel.
+    """
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if not api_key:
+        raise RuntimeError("ANTHROPIC_API_KEY is not set")
+
+    client = Anthropic(api_key=api_key)
+
+    user_message = (
+        "Here is one campaign's full context for the LAST 28 DAYS. Reason "
+        "exclusively from this window and only about THIS campaign. Produce the "
+        "campaign report per the schema in your system prompt. STRICT JSON only, "
+        "no prose, no markdown fences.\n\n"
+        + json.dumps(campaign_context, separators=(",", ":"), default=str)
+    )
+
+    raw, stop_reason = _plain_call(
+        client, CAMPAIGN_SYSTEM_PROMPT, user_message, max_tokens=8000
+    )
+    if stop_reason == "max_tokens":
+        raw, stop_reason = _plain_call(
+            client, CAMPAIGN_SYSTEM_PROMPT, user_message, max_tokens=16000
+        )
+
+    try:
+        return json.loads(_strip_json(raw))
+    except json.JSONDecodeError:
+        pass
+
+    repaired = _repair_json(client, raw)
+    try:
+        return json.loads(_strip_json(repaired))
+    except json.JSONDecodeError as exc:
+        truncated_note = " (truncated)" if stop_reason == "max_tokens" else ""
+        raise RuntimeError(
+            f"Campaign report returned invalid JSON after repair{truncated_note}: {exc}"
+        )
 
 
 def build_strategist_report(account_context: dict) -> dict:

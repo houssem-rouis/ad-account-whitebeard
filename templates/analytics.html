@@ -653,7 +653,8 @@
     <ul class="mb-2 small">
       <li><strong id="est-whisper">0</strong> OpenAI Whisper calls (video transcription)</li>
       <li><strong id="est-claude-audit">0</strong> Anthropic Claude calls (per-ad copywriting audit)</li>
-      <li><strong>1</strong> Anthropic Claude call (strategist summary)</li>
+      <li><strong>1</strong> Anthropic Claude call (account summary)</li>
+      <li><strong id="est-campaigns">0</strong> Anthropic Claude calls (one detailed report per campaign)</li>
       <li class="text-faint">Eligible open ads: <span id="est-total">0</span> · estimated cost ~$<span id="est-cost">0</span></li>
     </ul>
     <div class="d-flex gap-2">
@@ -681,7 +682,144 @@
   <!-- DONE -->
   <div id="strategist-done" style="display: {% if scope_account.report_data %}block{% else %}none{% endif %};">
     {% set r = scope_account.report_data %}
+    {% set campaign_reports = scope_account.campaign_reports or [] %}
+
+    {# ---- per-campaign report pane (one tab each) ---- #}
+    {% macro campaign_pane(entry) %}
+      {% if entry.error %}
+      <div class="alert alert-danger mb-0">Campaign report failed: {{ entry.error }}</div>
+      {% else %}
+      {% set c = entry.report %}
+      <div class="alert alert-secondary mb-3">
+        <h6 class="fw-semibold mb-1">{{ entry.campaign_name }}</h6>
+        <p class="mb-0">{{ c.verdict }}</p>
+      </div>
+      {% if c.headline_metrics %}
+      {% set hm = c.headline_metrics %}
+      <div class="row g-3 mb-4">
+        {% for label, val, money, suffix in [
+            ('Spend', hm.spend, true, ''), ('Revenue', hm.revenue, true, ''),
+            ('ROAS', hm.roas, false, 'x'), ('Purchases', hm.purchases, false, ''),
+            ('CTR', hm.ctr, false, '%'), ('CPA', hm.cpa, true, '')] %}
+        <div class="col-6 col-lg-2">
+          <div class="card metric-card h-100">
+            <span class="label">{{ label }}</span>
+            {% if money %}
+            <span class="value money" data-usd="{{ val or 0 }}">${{ '%.2f' | format(val or 0) }}</span>
+            {% else %}
+            <span class="value">{{ '%.2f' | format(val or 0) }}{{ suffix }}</span>
+            {% endif %}
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+
+      {% if c.adset_breakdown %}
+      <div class="card p-3 mb-4">
+        <h6 class="fw-semibold mb-2">Ad sets in this campaign</h6>
+        <div class="table-responsive">
+          <table class="table table-sm align-middle mb-0">
+            <thead><tr><th>Ad set</th><th class="text-end">Spend</th><th class="text-end">ROAS</th><th class="text-end">Purchases</th><th class="text-end">CTR</th><th>Insight</th><th>Action</th></tr></thead>
+            <tbody>
+              {% for a in c.adset_breakdown %}
+              <tr>
+                <td class="fw-semibold">{{ a.adset_name }}</td>
+                <td class="text-end money" data-usd="{{ a.spend }}">${{ '%.2f' | format(a.spend or 0) }}</td>
+                <td class="text-end">{{ '%.2f' | format(a.roas or 0) }}x</td>
+                <td class="text-end">{{ a.purchases }}</td>
+                <td class="text-end">{{ '%.2f' | format(a.ctr or 0) }}%</td>
+                <td class="small">{{ a.insight }}</td>
+                <td><span class="badge bg-primary">{{ a.action }}</span></td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      {% endif %}
+
+      <div class="row g-4 mb-4">
+        <div class="col-lg-6">
+          <div class="card p-3 h-100">
+            <h6 class="fw-semibold mb-2 text-success">Winners</h6>
+            {% for w in c.winners or [] %}
+            <div class="mb-3 pb-3 {% if not loop.last %}border-bottom{% endif %}">
+              <a class="fw-semibold text-decoration-none" href="{{ url_for('ad_detail', ad_id=w.ad_id) }}">{{ w.ad_name }}</a>
+              <div class="text-faint small mb-1">Spend ${{ '%.2f' | format(w.spend or 0) }} · ROAS {{ '%.2f' | format(w.roas or 0) }}x · {{ w.purchases }} purchases · CTR {{ '%.2f' | format(w.ctr or 0) }}%</div>
+              <div class="small mb-1"><strong>Why:</strong> {{ w.why_winning }}</div>
+              <div class="small"><strong>Action:</strong> {{ w.scale_recommendation }}</div>
+            </div>
+            {% else %}
+            <p class="text-muted small mb-0">No winners in this campaign for the period.</p>
+            {% endfor %}
+          </div>
+        </div>
+        <div class="col-lg-6">
+          <div class="card p-3 h-100">
+            <h6 class="fw-semibold mb-2 text-danger">Losers / money drains</h6>
+            {% for l in c.losers or [] %}
+            <div class="mb-3 pb-3 {% if not loop.last %}border-bottom{% endif %}">
+              <a class="fw-semibold text-decoration-none" href="{{ url_for('ad_detail', ad_id=l.ad_id) }}">{{ l.ad_name }}</a>
+              <div class="text-faint small mb-1">Spend ${{ '%.2f' | format(l.spend or 0) }} · ROAS {{ '%.2f' | format(l.roas or 0) }}x · {{ l.purchases }} purchases · CTR {{ '%.2f' | format(l.ctr or 0) }}%</div>
+              <div class="small mb-1"><strong>Why:</strong> {{ l.why_losing }}</div>
+              <div class="small"><strong>Action:</strong> <span class="badge bg-danger">{{ l.action }}</span></div>
+            </div>
+            {% else %}
+            <p class="text-muted small mb-0">No losers in this campaign.</p>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+
+      <div class="row g-4">
+        {% if c.what_to_change %}
+        <div class="col-lg-4">
+          <div class="card p-3 h-100">
+            <h6 class="fw-semibold mb-2">What to change</h6>
+            <ol class="small mb-0">{% for x in c.what_to_change %}<li class="mb-2">{{ x }}</li>{% endfor %}</ol>
+          </div>
+        </div>
+        {% endif %}
+        {% if c.what_to_launch %}
+        <div class="col-lg-4">
+          <div class="card p-3 h-100">
+            <h6 class="fw-semibold mb-2">What to launch</h6>
+            <ol class="small mb-0">{% for x in c.what_to_launch %}<li class="mb-2">{{ x }}</li>{% endfor %}</ol>
+          </div>
+        </div>
+        {% endif %}
+        {% if c.next_actions %}
+        <div class="col-lg-4">
+          <div class="card p-3 h-100">
+            <h6 class="fw-semibold mb-2">Next actions (this week)</h6>
+            <ol class="small mb-0">{% for x in c.next_actions %}<li class="mb-2">{{ x }}</li>{% endfor %}</ol>
+          </div>
+        </div>
+        {% endif %}
+      </div>
+      {% endif %}
+    {% endmacro %}
+
     {% if r %}
+    {# ---- tab switcher: Overview + one tab per campaign ---- #}
+    <ul class="nav nav-tabs mb-3" id="reportTabs" role="tablist">
+      <li class="nav-item" role="presentation">
+        <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#report-tab-overview" type="button" role="tab">Overview</button>
+      </li>
+      {% for entry in campaign_reports %}
+      <li class="nav-item" role="presentation">
+        <button class="nav-link" data-bs-toggle="tab" data-bs-target="#report-tab-{{ loop.index }}" type="button" role="tab"
+                title="{{ entry.campaign_name }}">
+          {{ entry.campaign_name | truncate(26) }}
+          <span class="badge bg-secondary ms-1">{{ '%.2f' | format(entry.roas or 0) }}x</span>
+        </button>
+      </li>
+      {% endfor %}
+    </ul>
+
+    <div class="tab-content">
+    <div class="tab-pane fade show active" id="report-tab-overview" role="tabpanel">
     <div class="alert alert-success mb-3">
       <h6 class="fw-semibold mb-1">Executive summary</h6>
       <p class="mb-0">{{ r.executive_summary }}</p>
@@ -891,6 +1029,14 @@
       </div>
       {% endif %}
     </div>
+    </div><!-- /#report-tab-overview -->
+
+    {% for entry in campaign_reports %}
+    <div class="tab-pane fade" id="report-tab-{{ loop.index }}" role="tabpanel">
+      {{ campaign_pane(entry) }}
+    </div>
+    {% endfor %}
+    </div><!-- /.tab-content -->
     {% endif %}
   </div>
 </div>
@@ -931,14 +1077,15 @@
     if (!progress) { phaseLabel.textContent = 'Loading…'; progressBar.style.width = '0%'; return; }
     const labels = {
       queued: 'Queued…',
-      transcribing: `Step 1/3 · Transcribing videos (${progress.done}/${progress.total})`,
-      auditing: `Step 2/3 · Auditing ad copy (${progress.done}/${progress.total})`,
-      summarizing: 'Step 3/3 · Building strategist summary…',
+      transcribing: `Step 1/4 · Transcribing videos (${progress.done}/${progress.total})`,
+      auditing: `Step 2/4 · Auditing ad copy (${progress.done}/${progress.total})`,
+      summarizing: 'Step 3/4 · Building account summary…',
+      campaigns: `Step 4/4 · Per-campaign reports (${progress.done}/${progress.total})`,
       done: 'Done.',
     };
     phaseLabel.textContent = labels[progress.phase] || progress.phase;
-    const phaseWeight = { queued: 0, transcribing: 0.4, auditing: 0.4, summarizing: 0.2, done: 0 };
-    const phaseOffset = { queued: 0, transcribing: 0, auditing: 0.4, summarizing: 0.8, done: 1 };
+    const phaseWeight = { queued: 0, transcribing: 0.35, auditing: 0.35, summarizing: 0.15, campaigns: 0.15, done: 0 };
+    const phaseOffset = { queued: 0, transcribing: 0, auditing: 0.35, summarizing: 0.70, campaigns: 0.85, done: 1 };
     const localPct = progress.total ? (progress.done / progress.total) : 0;
     const pct = Math.min(100, Math.round((phaseOffset[progress.phase] + (phaseWeight[progress.phase] || 0) * localPct) * 100));
     progressBar.style.width = pct + '%';
@@ -984,6 +1131,7 @@
         }
         document.getElementById('est-whisper').textContent = data.whisper_calls;
         document.getElementById('est-claude-audit').textContent = data.claude_audit_calls;
+        document.getElementById('est-campaigns').textContent = data.campaign_calls;
         document.getElementById('est-total').textContent = data.eligible_ads_total;
         document.getElementById('est-cost').textContent = data.estimated_cost_usd;
         hide(idle); hide(error); hide(pending);

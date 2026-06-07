@@ -1,7 +1,7 @@
 import os
 import secrets
 import threading
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from dotenv import load_dotenv
 
@@ -30,7 +30,7 @@ from services.ad_provider import (
 from analysis import analyze_ad_text
 from services.transcribe import transcribe_video
 from services.copywriter import analyze_copy
-from services.strategist import build_strategist_report
+from services.strategist import build_strategist_report, build_campaign_report
 from treatment import enrich_ad, enrich_ads, fx_rate, FX_RATES_TO_USD
 import insights as insights_mod
 
@@ -702,19 +702,27 @@ def _estimate_report_calls(account_id):
         if will_have_text:
             needs_analysis.append(a)
 
+    # One per-campaign Claude call per distinct campaign among eligible ads.
+    campaign_calls = len({
+        a.get("campaign_id") or a.get("campaign_name") or "unknown"
+        for a in eligible
+    })
+
     whisper_calls = len(needs_transcript)
     claude_audit_calls = len(needs_analysis)
-    # +1 for the final strategist summary call.
+    # +1 for the account-wide strategist summary, + one per campaign.
     claude_summary_calls = 1
-    total_claude = claude_audit_calls + claude_summary_calls
+    total_claude = claude_audit_calls + claude_summary_calls + campaign_calls
 
     # Cost model: Whisper $0.006/min (~30s avg = $0.003) + Sonnet
-    # ~$0.005/audit + ~$0.10 for the summary (longer output + up to 3 Anthropic
-    # web_search calls @ $0.01 each for the research-augmented strategist).
+    # ~$0.005/audit + ~$0.10 for the account summary (longer output + up to 3
+    # Anthropic web_search calls @ $0.01 each) + ~$0.03 per campaign report
+    # (no web search, smaller context).
     est_cost = round(
         whisper_calls * 0.003
         + claude_audit_calls * 0.005
-        + claude_summary_calls * 0.10,
+        + claude_summary_calls * 0.10
+        + campaign_calls * 0.03,
         3,
     )
 
@@ -724,6 +732,7 @@ def _estimate_report_calls(account_id):
         "whisper_calls": whisper_calls,
         "claude_audit_calls": claude_audit_calls,
         "claude_summary_calls": claude_summary_calls,
+        "campaign_calls": campaign_calls,
         "total_claude_calls": total_claude,
         "estimated_cost_usd": est_cost,
     }
@@ -832,6 +841,10 @@ def _build_report_account_context(account_id, account):
         per_ad.append({
             "ad_id": matched["id"],
             "ad_name": matched.get("name") or row.get("ad_name", ""),
+            "campaign_id": matched.get("campaign_id"),
+            "campaign_name": matched.get("campaign_name") or "Unknown campaign",
+            "adset_id": matched.get("adset_id"),
+            "adset_name": matched.get("adset_name") or "Unknown ad set",
             "creative_type": matched.get("creative_type"),
             "spend": round(m["spend"], 2),
             "revenue": round(m["revenue"], 2),
@@ -882,6 +895,75 @@ def _build_report_account_context(account_id, account):
             for r in country_summary
         ],
     }
+
+
+def _build_campaign_contexts(account_context):
+    """Split the account context's per-ad list into one self-contained context
+    per campaign, each ready to feed `build_campaign_report`. Campaigns are
+    ordered by spend (highest first) so the most important tabs render first."""
+    ads_by_campaign = {}
+    for ad in account_context.get("ads", []):
+        key = ad.get("campaign_id") or ad.get("campaign_name") or "unknown"
+        ads_by_campaign.setdefault(key, []).append(ad)
+
+    contexts = []
+    for key, ads in ads_by_campaign.items():
+        spend = round(sum(a.get("spend", 0) for a in ads), 2)
+        revenue = round(sum(a.get("revenue", 0) for a in ads), 2)
+        purchases = sum(a.get("purchases", 0) for a in ads)
+        clicks = sum(a.get("clicks", 0) for a in ads)
+        impressions = sum(a.get("impressions", 0) for a in ads)
+        campaign_name = ads[0].get("campaign_name") or "Unknown campaign"
+
+        # Per-ad-set rollup within this campaign.
+        adsets = {}
+        for a in ads:
+            ak = a.get("adset_id") or a.get("adset_name") or "unknown"
+            bucket = adsets.setdefault(ak, {
+                "adset_name": a.get("adset_name") or "Unknown ad set",
+                "spend": 0.0, "revenue": 0.0, "purchases": 0, "clicks": 0,
+                "impressions": 0,
+            })
+            bucket["spend"] += a.get("spend", 0)
+            bucket["revenue"] += a.get("revenue", 0)
+            bucket["purchases"] += a.get("purchases", 0)
+            bucket["clicks"] += a.get("clicks", 0)
+            bucket["impressions"] += a.get("impressions", 0)
+        adset_rollup = []
+        for b in adsets.values():
+            adset_rollup.append({
+                "adset_name": b["adset_name"],
+                "spend": round(b["spend"], 2),
+                "roas": round(b["revenue"] / b["spend"], 2) if b["spend"] else 0,
+                "purchases": b["purchases"],
+                "ctr": round(b["clicks"] / b["impressions"] * 100, 2) if b["impressions"] else 0,
+            })
+        adset_rollup.sort(key=lambda x: x["spend"], reverse=True)
+
+        contexts.append({
+            "campaign_id": ads[0].get("campaign_id"),
+            "campaign_name": campaign_name,
+            "account_name": account_context.get("account_name"),
+            "date_range": "last_28d",
+            "totals": {
+                "spend": spend,
+                "revenue": revenue,
+                "roas": round(revenue / spend, 2) if spend else 0,
+                "purchases": purchases,
+                "clicks": clicks,
+                "impressions": impressions,
+                "ctr": round(clicks / impressions * 100, 2) if impressions else 0,
+                "cpa": round(spend / purchases, 2) if purchases else 0,
+            },
+            "adsets": adset_rollup,
+            # Drop the per-ad campaign/adset keys from each ad — redundant now
+            # that the whole context is one campaign — but keep everything the
+            # model reasons over.
+            "ads": ads,
+        })
+
+    contexts.sort(key=lambda c: c["totals"]["spend"], reverse=True)
+    return contexts
 
 
 def _run_account_report_job(account_id):
@@ -988,10 +1070,55 @@ def _run_account_report_job(account_id):
         context = _build_report_account_context(account_id, account)
         report = build_strategist_report(context)
 
+        # PHASE 4: One Claude call per campaign, fanned out in parallel. What
+        # works in one campaign often fails in another, so each gets its own
+        # scoped report rendered as a switchable tab.
+        campaign_contexts = _build_campaign_contexts(context)
+        _update_account_fields(account_id, {
+            "report_progress": {
+                "phase": "campaigns",
+                "done": 0,
+                "total": len(campaign_contexts),
+            }
+        })
+        campaign_reports = []
+        if campaign_contexts:
+            done_count = 0
+            with ThreadPoolExecutor(max_workers=4) as pool:
+                future_map = {
+                    pool.submit(build_campaign_report, cc): cc
+                    for cc in campaign_contexts
+                }
+                for future in as_completed(future_map):
+                    cc = future_map[future]
+                    entry = {
+                        "campaign_id": cc.get("campaign_id"),
+                        "campaign_name": cc.get("campaign_name"),
+                        "spend": cc["totals"]["spend"],
+                        "roas": cc["totals"]["roas"],
+                    }
+                    try:
+                        entry["report"] = future.result()
+                    except Exception as exc:
+                        entry["error"] = str(exc)[:300]
+                    campaign_reports.append(entry)
+                    done_count += 1
+                    _update_account_fields(account_id, {
+                        "report_progress": {
+                            "phase": "campaigns",
+                            "done": done_count,
+                            "total": len(campaign_contexts),
+                        }
+                    })
+            # Keep the tab order stable (highest spend first) regardless of
+            # which Claude call finished first.
+            campaign_reports.sort(key=lambda e: e.get("spend", 0), reverse=True)
+
         _update_account_fields(account_id, {
             "report_status": "done",
             "report_completed_at": datetime.utcnow().isoformat(),
             "report_data": report,
+            "campaign_reports": campaign_reports,
             "report_progress": {"phase": "done", "done": 1, "total": 1},
             "report_error": None,
         })
@@ -1043,6 +1170,7 @@ def report_status_endpoint(account_id):
         status=account.get("report_status", "idle"),
         progress=account.get("report_progress"),
         data=account.get("report_data"),
+        campaign_reports=account.get("campaign_reports"),
         error=account.get("report_error"),
         completed_at=account.get("report_completed_at"),
     )
