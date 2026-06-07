@@ -220,20 +220,41 @@ def _strip_json(raw: str) -> str:
     return brace.group(0) if brace else raw
 
 
-def _repair_json(client, broken_raw: str) -> str:
-    """Ask Claude to fix the broken JSON and re-emit only the corrected
-    object. Used as a one-shot fallback when the strategist call returns
-    text that fails to parse (usually truncation or an unescaped quote)."""
-    repair = client.messages.create(
+# A permissive object schema: the model must return SOME object, but we don't
+# constrain the shape (the report schema varies). Tool inputs are serialized by
+# the API as valid JSON and surfaced as an already-parsed dict, so this path is
+# immune to the unescaped-quote / trailing-comma breakage that plagues parsing
+# free-form text.
+_EMIT_TOOL = {
+    "name": "emit_report",
+    "description": "Return the corrected report as a structured JSON object.",
+    "input_schema": {"type": "object", "additionalProperties": True},
+}
+
+
+def _repair_json_to_dict(client, broken_raw: str) -> dict:
+    """Repair malformed report JSON by forcing Claude to re-emit it through a
+    tool call. Because the API returns tool inputs as a parsed object (not a
+    string we have to json.loads), unescaped quotes and trailing commas in the
+    original can't break this. Returns the dict, or raises on failure."""
+    resp = client.messages.create(
         model=MODEL,
         max_tokens=16000,
-        system="You are a JSON repair tool. The user pastes broken JSON. You "
-               "return ONLY the corrected JSON object — no prose, no fences. "
-               "If the JSON is truncated, complete it so it parses. Preserve "
-               "all content; never invent fields.",
+        tools=[_EMIT_TOOL],
+        tool_choice={"type": "tool", "name": "emit_report"},
+        system="You are a JSON repair tool. The user pastes a broken or "
+               "partial report (possibly with prose or markdown fences around "
+               "it, unescaped quotes, or trailing commas, and possibly "
+               "truncated). Reconstruct the intended object and return it via "
+               "the emit_report tool. Preserve all real content and numbers; "
+               "if truncated, complete it sensibly; never invent new fields.",
         messages=[{"role": "user", "content": broken_raw}],
     )
-    return "".join(b.text for b in repair.content if b.type == "text").strip()
+    for block in resp.content:
+        if block.type == "tool_use" and block.name == "emit_report":
+            if isinstance(block.input, dict):
+                return block.input
+    raise RuntimeError("Repair tool call returned no object.")
 
 
 def _strategist_call(client, user_message, max_tokens):
@@ -319,10 +340,10 @@ def build_campaign_report(campaign_context: dict) -> dict:
     except json.JSONDecodeError:
         pass
 
-    repaired = _repair_json(client, raw)
+    # Tool-based repair returns a parsed dict directly — immune to escaping.
     try:
-        return json.loads(_strip_json(repaired))
-    except json.JSONDecodeError as exc:
+        return _repair_json_to_dict(client, raw)
+    except Exception as exc:
         truncated_note = " (truncated)" if stop_reason == "max_tokens" else ""
         raise RuntimeError(
             f"Campaign report returned invalid JSON after repair{truncated_note}: {exc}"
@@ -376,14 +397,14 @@ def build_strategist_report(account_context: dict) -> dict:
         pass
 
     # Parsing failed but the message wasn't truncated — likely an unescaped
-    # quote or trailing comma. Ask Claude to fix the JSON.
-    repaired = _repair_json(client, raw)
+    # quote or trailing comma (e.g. Claude quoted a verbatim hook line). Repair
+    # via a forced tool call, which returns a parsed dict and so can't be broken
+    # by the same escaping issue.
     try:
-        return json.loads(_strip_json(repaired))
-    except json.JSONDecodeError as exc:
+        return _repair_json_to_dict(client, raw)
+    except Exception as exc:
         truncated_note = " (truncated)" if stop_reason == "max_tokens" else ""
         raise RuntimeError(
             f"Claude returned invalid JSON after repair{truncated_note}: {exc}\n"
-            f"---first 800 chars of original---\n{raw[:800]}\n"
-            f"---first 800 chars of repair---\n{repaired[:800]}"
+            f"---first 1200 chars of original---\n{raw[:1200]}"
         )
